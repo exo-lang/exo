@@ -969,13 +969,19 @@ def top_level_check(
             env.set_qual_tl_name(bit_index, str(qual_tl))
         env.set_debug_validation_enable(debug_always)
         if camspork_trace is not None and single_sync_var is None:
-            # Testing: probes name variables by str(Sym); must be unambiguous.
-            filename, probes = camspork_trace
+            # Testing (camspork_ref.CamsporkTraceRequest): probes name variables
+            # by str(Sym); must be unambiguous.
             syms = {}
             for sym in backend.mem_env:
                 assert str(sym) not in syms, f"ambiguous trace probe name {sym}"
                 syms[str(sym)] = sym
-            env.set_trace(filename, [(syms[nm], tuple(idx)) for nm, idx in probes])
+            env.set_trace(
+                camspork_trace.filename,
+                [(syms[nm], tuple(idx)) for nm, idx in camspork_trace.probes],
+            )
+            camspork_trace.stmt_srcinfo = lambda raw: str(
+                camspork_program.get_stmt_srcinfo(camspork.StmtRef(raw))
+            )
         return env
 
     # Run validation up to 2 times.

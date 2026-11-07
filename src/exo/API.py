@@ -474,7 +474,7 @@ class Procedure(ProcedureBase, ProcCallGen):
         All size/index argument values must be given as int keyword arguments.
         This proc will be checked for the problem size given.
 
-        _camspork_trace: testing only; (filename, [(var_name_str, idx), ...]).
+        _camspork_trace: testing only; camspork_ref.CamsporkTraceRequest.
         """
 
         # Enforce for Exo pytest only that sync_check cannot be used without

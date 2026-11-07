@@ -24,6 +24,8 @@ import json
 from dataclasses import dataclass, replace
 from typing import Dict, FrozenSet, Iterable, List, Optional, Tuple
 
+from ..core.prelude import get_srcinfo
+
 Tids = Tuple[Tuple[int, int], ...]
 Ob = FrozenSet[Tuple[int, Tids]]
 Aw = FrozenSet[Tuple[str, int]]
@@ -271,101 +273,138 @@ class SyncEnvRef:
                     )
                 state[kind] = out
 
-    # *** Trace ***
+    def alloc_barrier(self, var: str, shape: tuple):
+        """Barrier variables: sync env entries (Arrive/Await access them) plus Mbarriers state."""
+        self.alloc(var, shape)
+        for idx in itertools.product(*(range(n) for n in shape)):
+            self.mbarriers.alloc(barrier_str(var, idx))
+
+    def free_barrier(self, var: str):
+        for idx in itertools.product(*(range(n) for n in self.shapes[var])):
+            self.mbarriers.free(barrier_str(var, idx))
+        self.free(var)
+
+    # *** Trace (same JSONL schema as camspork's exec.cpp trace_sync) ***
 
     def snapshot(self, probes) -> List[dict]:
         out = []
         for var, idx in probes:
             state = self.env.get((var, tuple(idx)))
-            out.append(
-                {
-                    "var": var,
-                    "idx": list(idx),
-                    "mutate": None if state is None else set(state["mutate"]),
-                    "read": None if state is None else set(state["read"]),
-                }
-            )
+            p = {"var": var, "idx": list(idx)}
+            for kind in ("mutate", "read"):
+                p[kind] = (
+                    None if state is None else [record_to_json(r) for r in state[kind]]
+                )
+            bar = barrier_str(var, idx)
+            if bar in self.mbarriers.arrive_count:
+                p["arrive_count"] = self.mbarriers.arrive_count[bar]
+                p["await_count"] = self.mbarriers.await_count[bar]
+            out.append(p)
         return out
 
-    def sync(self, stmt: str, tids, probes, fn):
-        """Record before/after snapshots around a sync event, like camspork's trace."""
-        tids = as_tids(tids)
-        self.trace.append(
-            {
-                "phase": "before",
-                "stmt": stmt,
-                "tids": tids,
-                "probes": self.snapshot(probes),
-            }
-        )
-        fn()
-        self.trace.append(
-            {
-                "phase": "after",
-                "stmt": stmt,
-                "tids": tids,
-                "probes": self.snapshot(probes),
-            }
-        )
+    def sync(self, stmt: str, tids, probes, fn, *, depth=0):
+        """Record before/after snapshots around a sync event, like camspork's trace.
+
+        The entry's "src" is the caller's Python line (like excut's xrg(...));
+        pass depth to attribute it to a caller further up (e.g. a helper's caller).
+        """
+        srcinfo = get_srcinfo(depth + 2)
+        src = f"{srcinfo.filename}:{srcinfo.lineno}"
+        threads = [list(iv) for iv in as_tids(tids)]
+        for phase in ("before", "after"):
+            if phase == "after":
+                fn()
+            self.trace.append(
+                {
+                    "phase": phase,
+                    "stmt": stmt,
+                    "stmt_id": None,
+                    "src": src,
+                    "threads": threads,
+                    "cuboid": None,
+                    "probes": self.snapshot(probes),
+                }
+            )
+
+    def write_trace(self, filename: str):
+        """Write the reference trace; read it back with parse_trace (excut-style round trip)."""
+        with open(filename, "w") as f:
+            for e in self.trace:
+                f.write(json.dumps(e) + "\n")
 
 
-# *** camspork trace parsing and comparison ***
+def barrier_str(var: str, idx) -> str:
+    # Matches camspork exec.cpp print_idx_helper (no brackets for scalars).
+    return var + (f"[{', '.join(str(i) for i in idx)}]" if len(idx) else "")
 
 
-def cuboid_tids(c: dict) -> Tids:
-    # Like camspork cuboid_to_intervals: innermost dimension gives contiguous intervals.
-    dom, off, box = c["domain"], c["offset"], c["box"]
-    n = 1
-    for d in dom:
-        n *= d
-    out = []
-    for coord in itertools.product(
-        *(range(o, o + b) for o, b in zip(off[:-1], box[:-1]))
-    ):
-        lin = 0
-        for d, x in zip(dom[:-1], coord):
-            lin = lin * d + x
-        lo = c["task_index"] * n + lin * dom[-1] + off[-1]
-        out.append((lo, lo + box[-1]))
-    return tids_norm(out)
+def record_to_json(r: VisRecord) -> dict:
+    return {
+        "ob": [[lo, hi, 1 << qi] for qi, t in sorted(r.ob) for lo, hi in t],
+        "aw": [[bar, z] for bar, z in sorted(r.aw)],
+        "mask": r.mask,
+        "flags": 2 if r.freed else 0,  # vis_record_freed_flag
+    }
 
 
-def parse_camspork_trace(filename: str) -> List[dict]:
+def record_from_json(r: dict) -> VisRecord:
+    ob = frozenset()
+    for lo, hi, bits in r["ob"]:
+        ob = ob_union(ob, obs(((lo, hi),), bits))
+    return VisRecord(
+        ob,
+        aw_union(frozenset(), frozenset(tuple(a) for a in r["aw"])),
+        r["mask"],
+        bool(r["flags"] & 2),  # vis_record_freed_flag
+    )
+
+
+# *** Trace parsing (both sides), comparison, and readable dumps ***
+
+
+@dataclass
+class CamsporkTraceRequest:
+    """Passed as Procedure.sync_check(_camspork_trace=...).
+
+    probes: [(var name str, idx tuple)]. sync_check sets stmt_srcinfo
+    (camspork stmt_id -> Exo source location str) for parse_trace."""
+
+    filename: str
+    probes: List[Tuple[str, tuple]]
+    stmt_srcinfo: Optional[object] = None
+
+
+def parse_trace(filename: str, stmt_srcinfo=None) -> List[dict]:
+    """Parse a camspork or reference trace (same schema) into canonical form:
+    sets of VisRecord with merged observer intervals."""
     entries = []
     with open(filename) as f:
-        for line in f:
+        for line_no, line in enumerate(f, 1):
             e = json.loads(line)
+            src = e["src"]
+            if src is None and e["stmt_id"] is not None and stmt_srcinfo:
+                src = stmt_srcinfo(e["stmt_id"])
             probes = []
             for p in e["probes"]:
-                q = {"var": p["var"], "idx": p["idx"]}
+                q = {
+                    "var": p["var"],
+                    "idx": p["idx"],
+                    "arrive_count": p.get("arrive_count"),
+                    "await_count": p.get("await_count"),
+                }
                 for kind in ("mutate", "read"):
                     recs = p[kind]
-                    if recs is not None:
-                        recs = {
-                            VisRecord(
-                                ob_union(
-                                    frozenset(),
-                                    frozenset().union(
-                                        *(
-                                            obs(((lo, hi),), bits)
-                                            for lo, hi, bits in r["ob"]
-                                        )
-                                    ),
-                                ),
-                                frozenset(tuple(a) for a in r["aw"]),
-                                r["mask"],
-                                bool(r["flags"] & 2),  # vis_record_freed_flag
-                            )
-                            for r in recs
-                        }
-                    q[kind] = recs
+                    q[kind] = (
+                        None if recs is None else {record_from_json(r) for r in recs}
+                    )
                 probes.append(q)
             entries.append(
                 {
                     "phase": e["phase"],
                     "stmt": e["stmt"],
-                    "stmt_id": e["stmt_id"],
-                    "tids": cuboid_tids(e["cuboid"]),
+                    "src": src,
+                    "where": f"{filename}:{line_no}",
+                    "tids": tids_norm(tuple(iv) for iv in e["threads"]),
                     "probes": probes,
                 }
             )
@@ -388,56 +427,62 @@ def fmt_record(r: VisRecord, qual_names) -> str:
     return f"Ob[{' '.join(parts)}] Aw{sorted(r.aw)} mask={r.mask:#x}{' FREED' if r.freed else ''}"
 
 
-def compare_traces(
-    actual: List[dict], expected: List[dict], qual_names, srcinfo=None
-) -> List[str]:
+def fmt_records(recs, qual_names, sep) -> str:
+    if recs is None:
+        return "null"
+    return sep.join(sorted(fmt_record(r, qual_names) for r in recs))
+
+
+def compare_traces(actual: List[dict], expected: List[dict], qual_names) -> List[str]:
     """Return list of mismatch messages (empty: traces match as sets)."""
     errors = []
-    if len(actual) != len(expected):
-        errors.append(f"trace length {len(actual)} != expected {len(expected)}")
     for i, (a, e) in enumerate(zip(actual, expected)):
-        where = f"#{i} {a['phase']} {a['stmt']}"
-        if srcinfo:
-            where += f" @ {srcinfo(a['stmt_id'])}"
+        where = (
+            f"#{i} {a['phase']} {a['stmt']}\n"
+            f"  actual   @ {a['src']} ({a['where']})\n"
+            f"  expected @ {e['src']} ({e['where']})"
+        )
         if (a["phase"], a["stmt"]) != (e["phase"], e["stmt"]):
-            errors.append(f"{where}: expected {e['phase']} {e['stmt']}")
+            errors.append(f"{where}\n  expected {e['phase']} {e['stmt']}")
             break
         if a["tids"] != e["tids"]:
             errors.append(
-                f"{where}: threads {{{fmt_tids(a['tids'])}}} != expected {{{fmt_tids(e['tids'])}}}"
+                f"{where}\n  threads {{{fmt_tids(a['tids'])}}} != expected {{{fmt_tids(e['tids'])}}}"
             )
         for pa, pe in zip(a["probes"], e["probes"]):
+            name = f"{pa['var']}{pa['idx']}"
             for kind in ("mutate", "read"):
                 if pa[kind] != pe[kind]:
-                    fmt = lambda s: (
-                        "null"
-                        if s is None
-                        else "\n      ".join(
-                            sorted(fmt_record(r, qual_names) for r in s)
-                        )
-                    )
+                    sep = "\n              "
                     errors.append(
-                        f"{where}: {pa['var']}{pa['idx']} {kind}\n"
-                        f"    actual:   {fmt(pa[kind])}\n    expected: {fmt(pe[kind])}"
+                        f"{where}\n  {name} {kind}\n"
+                        f"    actual:   {fmt_records(pa[kind], qual_names, sep)}\n"
+                        f"    expected: {fmt_records(pe[kind], qual_names, sep)}"
                     )
+            for count in ("arrive_count", "await_count"):
+                if pa[count] != pe[count]:
+                    errors.append(
+                        f"{where}\n  {name} {count} {pa[count]} != expected {pe[count]}"
+                    )
+    if len(actual) != len(expected):
+        errors.append(f"trace length {len(actual)} != expected {len(expected)}")
     return errors
 
 
-def dump_reference_trace(filename: str, expected: List[dict], qual_names):
+def write_trace_txt(filename: str, entries: List[dict], qual_names):
+    """Readable dump of a parsed trace; same printer for both sides, so the .txt files diff."""
     with open(filename, "w") as f:
-        for e in expected:
-            f.write(f"{e['phase']} {e['stmt']} threads={{{fmt_tids(e['tids'])}}}\n")
+        for e in entries:
+            f.write(
+                f"{e['phase']} {e['stmt']} threads={{{fmt_tids(e['tids'])}}} @ {e['src']}\n"
+            )
             for p in e["probes"]:
+                name = f"{p['var']}{p['idx']}"
+                if p["arrive_count"] is not None:
+                    f.write(
+                        f"  {name} arrive_count={p['arrive_count']} await_count={p['await_count']}\n"
+                    )
                 for kind in ("mutate", "read"):
-                    recs = p[kind]
-                    f.write(f"  {p['var']}{p['idx']} {kind}:")
-                    if recs is None:
-                        f.write(" null\n")
-                    else:
-                        f.write(
-                            "\n"
-                            + "".join(
-                                f"    {fmt_record(r, qual_names)}\n"
-                                for r in sorted(recs, key=str)
-                            )
-                        )
+                    f.write(
+                        f"  {name} {kind}: {fmt_records(p[kind], qual_names, chr(10) + '    ')}\n"
+                    )

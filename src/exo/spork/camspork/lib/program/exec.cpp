@@ -176,10 +176,19 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             s << "]";
         };
 
+        // Schema shared with the Python reference writer (camspork_ref.py); "src" is filled in
+        // from stmt_id by the Python parser, since only Python knows the Exo source location.
         std::stringstream s;
         s << "{\"phase\": \"" << phase << "\", \"stmt\": \"" << stmt_name << "\""
           << ", \"stmt_id\": " << env.stmt_ref_from_ptr(node).raw_data
-          << ", \"cuboid\": " << cuboid << ", \"probes\": [";
+          << ", \"src\": null, \"threads\": [";
+        bool first_interval = true;
+        cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
+        {
+            s << (first_interval ? "" : ", ") << "[" << tid_lo << ", " << tid_hi << "]";
+            first_interval = false;
+        });
+        s << "], \"cuboid\": " << cuboid << ", \"probes\": [";
         for (size_t i = 0; i < env.trace_probes.size(); ++i) {
             const auto& [name, idx] = env.trace_probes[i];
             s << (i ? ", " : "") << "{\"var\": \"" << env.str_name(name) << "\", \"idx\": ";

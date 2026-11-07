@@ -9,10 +9,11 @@ from exo.platforms.cuda import *
 from exo.spork import timelines
 from exo.spork.timelines import Qual_tl, cuda_in_order_instr
 from exo.spork.camspork_ref import (
+    CamsporkTraceRequest,
     SyncEnvRef,
     compare_traces,
-    dump_reference_trace,
-    parse_camspork_trace,
+    parse_trace,
+    write_trace_txt,
 )
 
 
@@ -56,15 +57,23 @@ def ref_device_function(ref, probes, body):
     """Implicit syncs of CudaDeviceFunction (sync_check.py lowering)."""
     cuda_bits = timelines.cuda_stream_sync.get_timeline_set_bits()
     cpu_bit = timelines.cpu_in_order_qual.as_bit()
+    # depth=1: attribute these implicit syncs to the caller's line.
     ref.sync(
         "Fence",
         ref.cpu,
         probes,
         lambda: ref.fence(ref.cpu, cpu_bit | cuda_bits, cuda_bits),
+        depth=1,
     )
     body()
-    ref.sync("JoinThreads", ref.cpu, probes, lambda: ref.join_threads(ref.cpu))
-    ref.sync("Fence", ref.cpu, probes, lambda: ref.fence(ref.cpu, cuda_bits, cuda_bits))
+    ref.sync("JoinThreads", ref.cpu, probes, lambda: ref.join_threads(ref.cpu), depth=1)
+    ref.sync(
+        "Fence",
+        ref.cpu,
+        probes,
+        lambda: ref.fence(ref.cpu, cuda_bits, cuda_bits),
+        depth=1,
+    )
 
 
 def mkref_named_numeric_warps(probes):
@@ -101,12 +110,19 @@ PROBES = [("x", (0, 0)), ("x", (1, 31))]
 
 
 def run_trace_test(compiler, p, ref, tmp_path):
-    actual_path = str(tmp_path / "camspork_trace.jsonl")
-    p.sync_check(_camspork_trace=(actual_path, PROBES))
-    actual = parse_camspork_trace(actual_path)
+    """Like excut: both traces go to disk in the same JSONL schema and are read
+    back with the same parser; readable .txt dumps of both sit next to them."""
+    request = CamsporkTraceRequest(str(tmp_path / "camspork_trace.jsonl"), PROBES)
+    p.sync_check(_camspork_trace=request)
+    ref_path = str(tmp_path / "reference_trace.jsonl")
+    ref.write_trace(ref_path)
+
+    actual = parse_trace(request.filename, request.stmt_srcinfo)
+    expected = parse_trace(ref_path)
     qual_names = [str(q) for q in Qual_tl.get_all()]
-    dump_reference_trace(str(tmp_path / "reference_trace.txt"), ref.trace, qual_names)
-    return compare_traces(actual, ref.trace, qual_names)
+    write_trace_txt(str(tmp_path / "camspork_trace.txt"), actual, qual_names)
+    write_trace_txt(str(tmp_path / "reference_trace.txt"), expected, qual_names)
+    return compare_traces(actual, expected, qual_names)
 
 
 def test_named_numeric_warps_positive(compiler, tmp_path):
