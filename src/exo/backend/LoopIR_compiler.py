@@ -59,7 +59,14 @@ from ..spork.base_with_context import (
     is_if_holding_with,
 )
 from ..spork.ext_with_context import ExtWithContext
-from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar, CudaTasks
+from ..spork.loop_modes import (
+    LoopMode,
+    Seq,
+    Par,
+    _CodegenPar,
+    _CodegenNamedWarps,
+    CudaTasks,
+)
 from ..spork.barrier_usage import BarrierUsage, BarrierUsageAnalysis, SyncInfo
 from ..spork import timelines
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
@@ -1600,6 +1607,11 @@ class Compiler:
                 if unroll is not None:
                     unroll_str = f" {unroll}" if unroll > 0 else ""
                     self.add_line(f"#pragma unroll{unroll_str}")
+            elif isinstance(loop_mode, _CodegenNamedWarps):
+                # MainLoopRewrite already removed these for non-matching warp
+                # names, and the deviceMainLoop tests threadIdx per warp name.
+                self.add_line("{")
+                emit_loop = False
             elif isinstance(loop_mode, _CodegenPar):
                 # This is not valid C; if we add non-cuda backends we may have
                 # to add config options to _CodegenPar to tweak lowering syntax.

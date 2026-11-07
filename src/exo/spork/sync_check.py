@@ -38,7 +38,14 @@ from .coll_algebra import (
 )
 from .coll_analysis import CollAnalysis
 from .distributed_memory import ThreadIter
-from .loop_modes import Seq, CudaTasks, cuda_tasks, _CodegenPar, CudaThreads
+from .loop_modes import (
+    Seq,
+    CudaTasks,
+    cuda_tasks,
+    _CodegenPar,
+    _CodegenNamedWarps,
+    CudaThreads,
+)
 from .sync_types import SyncType
 from .timelines import (
     DeviceScope,
@@ -358,7 +365,7 @@ class CamsporkDo(LoopIR_Do):
                     if is_device_task:
                         # TODO put remark at end of task loop?
                         b.JoinThreads(srcinfo=s.srcinfo)
-            elif isinstance(loop_mode, _CodegenPar):
+            elif isinstance(loop_mode, (_CodegenPar, _CodegenNamedWarps)):
                 old_coll_tiling = self._coll_tiling
                 self.do_codegen_par(s, am_iter, am_lo, am_hi)
                 self._coll_tiling = old_coll_tiling

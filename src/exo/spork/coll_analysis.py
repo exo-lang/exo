@@ -28,7 +28,7 @@ from .coll_algebra import (
 )
 from .cuda_memory import CudaBasicDeviceVisible, CudaBasicDeviceBarrier
 from .cuda_warp_config import WarpLayoutInfo
-from .loop_modes import CudaThreads, _CodegenPar
+from .loop_modes import CudaThreads, _CodegenPar, _CodegenNamedWarps
 from .timelines import Qual_tl, Sync_tl
 from .with_cuda_warps import CudaWarps
 
@@ -38,8 +38,8 @@ coll_idx_e_types = (LoopIR.Read, LoopIR.WindowExpr)
 coll_idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
 
 
-def wrap_codegen_par(codegen_par, body, srcinfo, iter_sym=None):
-    assert isinstance(codegen_par, _CodegenPar)
+def wrap_codegen_par(codegen_loop_mode, body, srcinfo, iter_sym=None):
+    assert isinstance(codegen_loop_mode, (_CodegenPar, _CodegenNamedWarps))
     if iter_sym is None:
         iter_sym = Sym("tmp")
     return LoopIR.For(
@@ -47,7 +47,7 @@ def wrap_codegen_par(codegen_par, body, srcinfo, iter_sym=None):
         LoopIR.Const(0, T.int, srcinfo),
         LoopIR.Const(1, T.int, srcinfo),
         body,
-        codegen_par,
+        codegen_loop_mode,
         srcinfo,
     )
 
@@ -60,7 +60,7 @@ class CollAnalysis(LoopIR_Rewrite):
     And rewrites
         * cuda_threads loops
         * CudaWarps blocks
-    into _CodegenPar-mode loops
+    into _CodegenPar-mode and _CodegenNamedWarps-mode loops
     """
 
     __slots__ = [
@@ -320,18 +320,24 @@ class CollAnalysis(LoopIR_Rewrite):
         if stmts is not None:
             assert len(stmts) == 1
             s = stmts[0]
-        return [s.update(loop_mode=thread_iter.codegen_par)]
+        return [s.update(loop_mode=thread_iter.codegen_loop_mode)]
 
-    def map_with_cuda_warps(self, s: LoopIR.stmt, thread_iter: ThreadIter):
+    def map_with_cuda_warps(self, s: LoopIR.stmt, thread_iters: List[ThreadIter]):
         assert not s.orelse
         stmts = self.map_stmts(s.body)
         if stmts is None:
             stmts = s.body
-        s2 = wrap_codegen_par(
-            thread_iter.codegen_par, stmts, s.srcinfo, iter_sym=thread_iter.iter
-        )
-        self.thread_iters[s2.iter] = thread_iter
-        return [s2]
+        # thread_iters is outer-to-inner: optional named restriction, then numeric offset.
+        for thread_iter in reversed(thread_iters):
+            s2 = wrap_codegen_par(
+                thread_iter.codegen_loop_mode,
+                stmts,
+                s.srcinfo,
+                iter_sym=thread_iter.iter,
+            )
+            self.thread_iters[s2.iter] = thread_iter
+            stmts = [s2]
+        return stmts
 
     def apply_cuda_device_function(self, cuda_device_function: CudaDeviceFunction):
         self._coll_tiling = cuda_device_function.top_level_coll_tiling()
@@ -474,12 +480,11 @@ class CollAnalysis(LoopIR_Rewrite):
         thread_iter = ThreadIter(
             self._coll_tiling,
             s.loop_mode.format_loop_cond(lo_int, hi_int),
-            self._current_warp_name,
             mangle=True,
         )
 
         log_lhs = thread_iter.cname(s.iter)
-        log_rhs = thread_iter.codegen_par.c_index
+        log_rhs = thread_iter.codegen_loop_mode.c_index
         self._debug_log.remark(
             self._proc_name,
             f"thread_pitch={thread_iter.thread_pitch}; {log_lhs} = {log_rhs} @ {s.srcinfo}",
@@ -489,17 +494,14 @@ class CollAnalysis(LoopIR_Rewrite):
         self.thread_iters[s.iter] = thread_iter
         return thread_iter
 
-    def apply_with_cuda_warps(self, s) -> ThreadIter:
+    def apply_with_cuda_warps(self, s) -> List[ThreadIter]:
         assert self.in_cuda()
         ctx: CudaWarps = s.cond.val
         assert isinstance(ctx, CudaWarps)
         coll_tiling = self._coll_tiling
         is_top_level = self._current_warp_name is None
         named_warps = self._cuda_device_function.named_warps
-
-        top_am_dim_idx = None
-        top_am_offset = 0
-        top_am_box = None
+        thread_iters = []
 
         # Top-level CudaWarps: adjust CollTiling to account for offset of named warps.
         # We ignore the codegen here ... because of how the deviceTask is specialized
@@ -536,10 +538,10 @@ class CollAnalysis(LoopIR_Rewrite):
                     f"{s.srcinfo}: CudaWarps.hi={warps_hi} out-of-range for {name!r}-named warps (only have {info.count})"
                 )
 
-            # (1/2) adjust CollTiling for named warps offset.
-            # Codegen for CUDA C++ is discarded, since we handle testing the membership
-            # of threads in named warps in the deviceMainLoop. However, we will have
-            # to handle changing values for the abstract machine (am_*).
+            # (1/2) Named restriction: adjust CollTiling for named warps offset.
+            # Lowers to a _CodegenNamedWarps; the CUDA backend filters by warp
+            # name instead of testing threadIdx (the deviceMainLoop already
+            # specializes per warp name); camspork gets a ThreadsFor.
             coll_tiling = coll_tiling.specialized(
                 Sym(f"CudaWarps_{name}"),
                 cuda_warp,
@@ -547,10 +549,7 @@ class CollAnalysis(LoopIR_Rewrite):
                 (info.offset + info.count),
                 self._coll_env,
             )
-            codegen = coll_tiling.get_codegen()
-            top_am_dim_idx = codegen.dim_idx
-            top_am_offset = codegen.offset
-            top_am_box = codegen.box
+            thread_iters.append(ThreadIter(coll_tiling, warp_name=name, mangle=False))
 
         # Nested CudaWarps: interpret lo/hi literally as the higher-level
         # CudaWarps will have already handled the named warp offset adjustment.
@@ -583,15 +582,9 @@ class CollAnalysis(LoopIR_Rewrite):
 
         self._coll_tiling = coll_tiling
         self.remark_coll_tiling_in_body(s, coll_tiling)
-        return ThreadIter(
-            coll_tiling,
-            str(ctx),
-            name,
-            mangle=False,
-            prior_am_dim_idx=top_am_dim_idx,
-            prior_am_offset=top_am_offset,
-            prior_am_box=top_am_box,
-        )
+        # (2/2) Numeric offset: lowers to _CodegenPar.
+        thread_iters.append(ThreadIter(coll_tiling, str(ctx), mangle=False))
+        return thread_iters
 
     def remark_distributed_alloc_state(
         self, state: DistributedAllocState, context_stmt: LoopIR.stmt

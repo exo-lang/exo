@@ -405,11 +405,13 @@ exo_CudaInline_test_cuda_warps_hi_valid_positive::exo_Cuda0_test_proc::exo_devic
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_cuda_warps_hi_valid_positive;
-  // CudaWarps(None, 2, name='producer')
-  if ([[maybe_unused]] int CudaWarps_None_2_producer = threadIdx.x; 1) {
-    // cuda_threads(0, 64, unit=cuda_thread)
-    if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
-      *exo_deviceArgs.foo = 1.0f;
+  {
+    // CudaWarps(None, 2, name='producer')
+    if ([[maybe_unused]] int CudaWarps_None_2_producer = threadIdx.x; 1) {
+      // cuda_threads(0, 64, unit=cuda_thread)
+      if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
+        *exo_deviceArgs.foo = 1.0f;
+      }
     }
   }
 }
