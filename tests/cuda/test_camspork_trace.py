@@ -8,8 +8,6 @@ Tests never leave an access without a later sync (the trace only samples sync ev
 
 from __future__ import annotations
 
-import pytest
-
 from exo import proc, instr
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
@@ -516,13 +514,13 @@ def test_missing_fence_negative(compiler):
 
 
 # =============================================================================
-# Cross-task WAR hidden by "a mutate discards prior reads" (camspork OPT)
+# Cross-task WAR formerly hidden by camspork discarding prior reads upon a mutate
 #
 # Each task: generic read of g[0, 0], Fence(generic -> async), TMA reduce (atomic)
 # into g. No hazard within a task. With 2 tasks, task 1's TMA reduce races task 0's
-# read (WAR), but camspork discarded task 0's read record at task 0's own reduce.
-# If every task reads, task 1's read already fails (RAW vs task 0's reduce), which
-# masks the WAR; so the unsound case has only task 0 read.
+# read (WAR); camspork used to miss this because task 0's own reduce discarded
+# task 0's read record. If every task reads, task 1's read already fails (RAW vs
+# task 0's reduce), which masks the WAR; so the WAR-only case has only task 0 read.
 # =============================================================================
 
 
@@ -556,12 +554,11 @@ def mkproc_read_then_reduce(n_tasks, only_task0_reads):
     return simplify(read_then_reduce)
 
 
-def mkref_read_then_reduce(n_tasks, only_task0_reads, discard_reads_on_mutate=True):
+def mkref_read_then_reduce(n_tasks, only_task0_reads):
     rd_hi = 1 if only_task0_reads else n_tasks
     ref = SyncEnvRef(
         [("g", (0, 0)), ("g", (7, 7)), ("smem", (0, 0)), ("cg", ())],
         threads_per_task=32,
-        discard_reads_on_mutate=discard_reads_on_mutate,
     )
     generic_and_async = timelines.cuda_generic_and_async_proxy.get_timeline_set_bits()
     tma_L1 = timelines.tma_to_gmem_async.get_timeline_set_bits()
@@ -615,14 +612,8 @@ def test_read_then_reduce_2_tasks_all_read_negative(compiler):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="camspork's 'mutate discards prior reads' hides the cross-task WAR",
-)
 def test_read_then_reduce_2_tasks_negative(compiler):
-    """Only task 0 reads: task 1's TMA reduce must be rejected (WAR vs task 0's read).
-    The reference uses spec semantics (reads kept); camspork accepts today."""
+    """Only task 0 reads: task 1's TMA reduce must be rejected (WAR vs task 0's read)."""
     check_both_fail(
-        mkproc_read_then_reduce(2, True),
-        lambda: mkref_read_then_reduce(2, True, discard_reads_on_mutate=False),
+        mkproc_read_then_reduce(2, True), lambda: mkref_read_then_reduce(2, True)
     )

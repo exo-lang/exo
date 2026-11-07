@@ -281,10 +281,9 @@ class SyncEnvRef:
 
     all_threads: Tids = ((0, CPU_HI),)  # amspork3 Tid; camspork's "CPU" cuboid
 
-    def __init__(self, probes, threads_per_task: int, *, discard_reads_on_mutate=True):
+    def __init__(self, probes, threads_per_task: int):
         self.probes = [(var, tuple(idx)) for var, idx in probes]
         self.threads_per_task = threads_per_task
-        self.discard_reads_on_mutate = discard_reads_on_mutate
         # (var, idx) -> {"mutate": [VisRecord], "read": [VisRecord]}
         self.env: Dict[Tuple[str, tuple], Dict[str, List[VisRecord]]] = {}
         self.shapes: Dict[str, tuple] = {}
@@ -400,12 +399,9 @@ class SyncEnvRef:
             rec = VisRecord(frozenset(), aw_post, mask)
             ob_out = ob_union(obs(g, initial_bit), obs(self.all_threads, atomic_bits))
             new.append(replace(rec, ob=rec.mask_ob(ob_out)))
-        # OPT (camspork): a mutate discards prior reads. UNSOUND across tasks
-        # (test_read_then_reduce_*); discard_reads_on_mutate=False gives spec semantics.
-        # Prior mutates are kept.
+        # Spec semantics: prior reads and mutates are kept (camspork no longer
+        # discards prior reads upon a mutate; that was unsound across tasks).
         if is_mutate:
-            if self.discard_reads_on_mutate:
-                state["read"] = []
             state["mutate"] = state["mutate"] + new
         else:
             state["read"] = state["read"] + new
