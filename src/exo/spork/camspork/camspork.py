@@ -269,7 +269,7 @@ _add_Fence.argtypes = (c_void_p, c_uint32, c_uint32)
 
 _add_Arrive = lib.camspork_add_Arrive
 _add_Arrive.restype = StmtRef
-_add_Arrive.argtypes = (c_void_p, c_uint32, Varname, c_uint32, ptr_ArriveIdx)
+_add_Arrive.argtypes = (c_void_p, c_uint32, Varname, c_uint32, ptr_ArriveIdx, c_uint32)
 
 _add_Await = lib.camspork_add_Await
 _add_Await.restype = StmtRef
@@ -297,7 +297,7 @@ _add_SyncEnvFreeManagedRingBuffer.argtypes = (c_void_p, Varname);
 
 _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
-_add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32)
+_add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_int32)
 
 _add_DataFree = lib.camspork_add_DataFree
 _add_DataFree.restype = StmtRef
@@ -610,8 +610,11 @@ class ProgramBuilder:
     convergent_flag = 2
     mutate_flag = 4
 
-    one_shot_arrive_flag = 1
+    # BarrierEnvAlloc flags (expected_arrive_count replaced one_shot_arrive_flag = 1)
     one_shot_await_flag = 2
+    arrive_per_thread_flag = 4
+    # Arrive flags
+    arrive_pre_arrive_flag = 1
 
     def __init__(self):
         self._builder = check_return(_new_ProgramBuilder())
@@ -819,6 +822,7 @@ class ProgramBuilder:
         dst: BuilderIndexExpr | Varname,
         barrier_multicasts: Tuple[Tuple[bool]],
         *,
+        flags=0,
         srcinfo=None,
     ):
         var, dim, arrive_idx = self._unpack_multicast(dst, barrier_multicasts)
@@ -830,6 +834,7 @@ class ProgramBuilder:
                 var,
                 dim,
                 arrive_idx,
+                flags,
             ),
         )
 
@@ -912,9 +917,20 @@ class ProgramBuilder:
         )
 
     def BarrierEnvAlloc(
-        self, e: Varname | BuilderIndexExpr, *, flags=0, srcinfo=None
+        self,
+        e: Varname | BuilderIndexExpr,
+        *,
+        flags=0,
+        expected_arrive_count=0,
+        srcinfo=None,
     ) -> StmtRef:
-        return self._add_alloc(_add_BarrierEnvAlloc, e, flags, srcinfo)
+        var, dim, idxs = e.c_var_dim_idxs(self._builder)
+        return self.check_stmt(
+            srcinfo,
+            _add_BarrierEnvAlloc(
+                self._builder, var, dim, idxs, flags, expected_arrive_count
+            ),
+        )
 
     def _add_alloc(self, c_adder, e, flags, srcinfo) -> StmtRef:
         var, dim, idxs = e.c_var_dim_idxs(self._builder)

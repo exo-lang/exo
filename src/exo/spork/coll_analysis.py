@@ -129,6 +129,19 @@ class CollAnalysis(LoopIR_Rewrite):
         self._envtyp[a.name] = a.type
         return None
 
+    def mbarrier_expected_arrive_count(self, name: Sym, blockDim: int) -> int:
+        """Expected (literal mbarrier.init) arrive count of mbarrier variable name."""
+        usage: BarrierUsage = self._barrier_uses[name]
+        arrive_info = usage.get_arrive()
+        if arrive_info is None:
+            raise ValueError(
+                f"{usage.decl_stmt.srcinfo}: mbarrier {name} has no Arrive"
+            )
+        state = self.distributed_alloc_states[name]
+        return state.mbarrier_expected_arrive_count(
+            blockDim, self.thread_iters, arrive_info
+        )
+
     def get_qual_tl_thread_alignment(self, qual_tl: Qual_tl) -> int:
         """For out-of-order non-convergent abstract machine optimization"""
         try:
@@ -278,9 +291,7 @@ class CollAnalysis(LoopIR_Rewrite):
                 for i in range(len(e0.idx)):
                     if fsm.is_done():
                         break
-                    fsm.consume_SyncStmt_idx(
-                        state, self._stmt_stack, s, self._envtyp[e0.name], i
-                    )
+                    fsm.consume_SyncStmt_idx(state, s, self._envtyp[e0.name], i)
 
                 # We now have the distributed indices in distributed_iters.
                 # Store in DistributedAllocState if this is the first use, or check

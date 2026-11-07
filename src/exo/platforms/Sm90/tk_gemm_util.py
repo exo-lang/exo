@@ -488,7 +488,7 @@ def handwrite_row_col_coop_main_loop(config: GemmConfig):
         # final arrive on the war mbarriers. Note: for the persistent
         # kernel to work, this Arrive needs to be done, so mbarriers are left in
         # a consistent state. The sync_check enforces this: each allocated mbarrier
-        # must have been Arrived on exactly once (one_shot_arrive=True).
+        # must have received its full expected (mbarrier.init) arrive count.
         with CudaWarps(name="consumer"):
             for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                 for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
@@ -685,7 +685,7 @@ def handwrite_row_row_coop_main_loop(config: GemmConfig):
         # final arrive on the war mbarriers. Note: for the persistent
         # kernel to work, this Arrive needs to be done, so mbarriers are left in
         # a consistent state. The sync_check enforces this: each allocated mbarrier
-        # must have been Arrived on exactly once (one_shot_arrive=True).
+        # must have received its full expected (mbarrier.init) arrive count.
         with CudaWarps(name="consumer"):
             for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                 for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
@@ -835,7 +835,7 @@ def handwrite_row_col_ping_pong_main_loop(config: GemmConfig):
         # final arrive on the war mbarriers. Note: for the persistent
         # kernel to work, this Arrive needs to be done, so mbarriers are left in
         # a consistent state. The sync_check enforces this: each allocated mbarrier
-        # must have been Arrived on exactly once (one_shot_arrive=True).
+        # must have received its full expected (mbarrier.init) arrive count.
         with CudaWarps(name="consumer"):
             for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                 for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):

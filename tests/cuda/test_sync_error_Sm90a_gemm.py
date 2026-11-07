@@ -308,8 +308,13 @@ def test_ping_pong_reorder_arrive_raw(compiler):
         base_config, bug=GemmTestBug.ping_pong_reorder_arrive_raw, ping_pong=True
     )
     gemm = handwrite_gemm(config)
-    exc = "Cannot use this barrier as trailing barrier after previous Arrive"
+    # The trailing-barrier check that used to reject this ("Cannot use this barrier as
+    # trailing barrier after previous Arrive") is removed (no expect-tx ordering check;
+    # plan_multicast_barrier_counts.md). Instead the TMA's PendingAwait gets the literal,
+    # already-complete arrive count, which no Await covers, so the consumer read fails.
+    exc = "HAZARD"
     error_remarks = [
-        "raw[0, 0, 0, 0]",
+        "HAZARD @ B_smem",
+        "pending await: raw[0, 0, 0, 0] arrive_count=64",
     ]
     sync_check_helper(compiler, gemm, exc, error_remarks, K_split=1)

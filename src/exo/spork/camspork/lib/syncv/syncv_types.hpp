@@ -12,8 +12,12 @@
 namespace camspork
 {
 
-inline constexpr uint32_t one_shot_arrive_flag = 1;
+// BarrierEnvAlloc flags.
+// The expected arrive count (0 = unchecked) replaces the old one_shot_arrive_flag (1).
 inline constexpr uint32_t one_shot_await_flag = 2;
+inline constexpr uint32_t arrive_per_thread_flag = 4;  // Arrive adds its thread count, not 1 (mbarrier)
+// Arrive flags.
+inline constexpr uint32_t arrive_pre_arrive_flag = 1;  // Set arrive count to expected arrive count; no PendingAwaits
 inline constexpr uint32_t vis_record_before_alloc_flag = 1;
 inline constexpr uint32_t vis_record_freed_flag = 2;  // For abstract machine use-after-free error, not free in C++.
 
@@ -139,6 +143,15 @@ struct ThreadCuboid
         uint32_t prod = 1;
         for (uint32_t i = 0; i < dim(); ++i) {
             prod *= domain()[i];
+        }
+        return prod;
+    };
+
+    uint32_t box_num_threads() const
+    {
+        uint32_t prod = 1;
+        for (uint32_t i = 0; i < dim(); ++i) {
+            prod *= box()[i];
         }
         return prod;
     };

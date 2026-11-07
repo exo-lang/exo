@@ -694,6 +694,7 @@ struct stmt<9>
 {
     Varname name;
     qual_bits_t L1_qual_bits;
+    uint32_t flags;  // arrive_pre_arrive_flag
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 
@@ -728,13 +729,14 @@ struct stmt<12>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// BarrierEnvAlloc(Varname name, uint32_t flags, expr* extent)
+// BarrierEnvAlloc(Varname name, uint32_t flags, int32_t expected_arrive_count, expr* extent)
 using BarrierEnvAlloc = stmt<13>;
 template<>
 struct stmt<13>
 {
     Varname name;
     uint32_t flags;
+    int32_t expected_arrive_count;  // 0 = unchecked
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 

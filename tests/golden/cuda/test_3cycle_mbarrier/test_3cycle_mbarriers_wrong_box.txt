@@ -96,7 +96,7 @@ def proc_3cycle_mbarriers():
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
             #   barrier: BtoC[0, 0]
-            #   arrive_count: 0 -> 1
+            #   arrive_count: 0 -> 32
             #   await_count:  0 -> 0
             #   First sync-tl (set of qual-tl):
             #
@@ -104,7 +104,7 @@ def proc_3cycle_mbarriers():
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
             #   barrier: BtoC[0, 1]
-            #   arrive_count: 0 -> 1
+            #   arrive_count: 0 -> 32
             #   await_count:  0 -> 0
             #   First sync-tl (set of qual-tl):
             #
@@ -112,7 +112,7 @@ def proc_3cycle_mbarriers():
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
             #   barrier: BtoC[0, 2]
-            #   arrive_count: 0 -> 1
+            #   arrive_count: 0 -> 32
             #   await_count:  0 -> 0
             #   First sync-tl (set of qual-tl):
             #
@@ -120,7 +120,7 @@ def proc_3cycle_mbarriers():
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
             #   barrier: BtoC[1, 0]
-            #   arrive_count: 0 -> 1
+            #   arrive_count: 0 -> 32
             #   await_count:  0 -> 0
             #   First sync-tl (set of qual-tl):
             #
@@ -128,7 +128,7 @@ def proc_3cycle_mbarriers():
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
             #   barrier: BtoC[1, 1]
-            #   arrive_count: 0 -> 1
+            #   arrive_count: 0 -> 32
             #   await_count:  0 -> 0
             #   First sync-tl (set of qual-tl):
             #
@@ -136,7 +136,7 @@ def proc_3cycle_mbarriers():
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
             #   barrier: BtoC[1, 2]
-            #   arrive_count: 0 -> 1
+            #   arrive_count: 0 -> 32
             #   await_count:  0 -> 0
             #   First sync-tl (set of qual-tl):
             BtoC: barrier[2, (25 + 3) @ (ring_buffer_by(
@@ -147,7 +147,7 @@ def proc_3cycle_mbarriers():
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
             #   barrier: CtoA[0, 0]
-            #   arrive_count: 0 -> 1
+            #   arrive_count: 0 -> 64
             #   await_count:  0 -> 0
             #   First sync-tl (set of qual-tl):
             #
@@ -155,7 +155,7 @@ def proc_3cycle_mbarriers():
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
             #   barrier: CtoA[1, 0]
-            #   arrive_count: 0 -> 1
+            #   arrive_count: 0 -> 64
             #   await_count:  0 -> 0
             #   First sync-tl (set of qual-tl):
             #
@@ -346,7 +346,7 @@ def proc_3cycle_mbarriers():
                         # Last sync recorded:
                         #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [96], "box": [32]}
                         #   barrier: BtoC[1, 8]
-                        #   arrive_count: 0 -> 1
+                        #   arrive_count: 0 -> 32
                         #   await_count:  0 -> 0
                         #   First sync-tl (set of qual-tl):
                         #                cuda_in_order_rmem_qual
@@ -357,7 +357,7 @@ def proc_3cycle_mbarriers():
                         # Arrive recorded, which caused VisRecord change:
                         #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [64], "box": [32]}
                         #   barrier: BtoC[0, 5]
-                        #   arrive_count: 0 -> 1
+                        #   arrive_count: 0 -> 32
                         #   await_count:  0 -> 0
                         #   First sync-tl (set of qual-tl):
                         #                cuda_in_order_rmem_qual
@@ -389,7 +389,7 @@ def proc_3cycle_mbarriers():
                         # Arrive recorded, which caused VisRecord change:
                         #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [64], "box": [32]}
                         #   barrier: BtoC[0, 6]
-                        #   arrive_count: 0 -> 1
+                        #   arrive_count: 0 -> 32
                         #   await_count:  0 -> 0
                         #   First sync-tl (set of qual-tl):
                         #                cuda_in_order_rmem_qual
@@ -425,7 +425,7 @@ def proc_3cycle_mbarriers():
                         # Arrive recorded, which caused VisRecord change:
                         #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [64], "box": [32]}
                         #   barrier: BtoC[0, 7]
-                        #   arrive_count: 0 -> 1
+                        #   arrive_count: 0 -> 32
                         #   await_count:  0 -> 0
                         #   First sync-tl (set of qual-tl):
                         #                cuda_in_order_rmem_qual
@@ -465,7 +465,7 @@ def proc_3cycle_mbarriers():
                         # Arrive recorded, which caused VisRecord change:
                         #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [64], "box": [32]}
                         #   barrier: BtoC[0, 8]
-                        #   arrive_count: 0 -> 1
+                        #   arrive_count: 0 -> 32
                         #   await_count:  0 -> 0
                         #   First sync-tl (set of qual-tl):
                         #                cuda_in_order_rmem_qual
@@ -535,9 +535,9 @@ def proc_3cycle_mbarriers():
                             # Last sync recorded:
                             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [320], "box": [32]}
                             #   barrier: BtoC[1, 5]
-                            #   arrive_count: 1 -> 1
+                            #   arrive_count: 32 -> 32
                             #   await_count:  0 -> 1
-                            #   > Updates pending awaits with arrive_count <= 0
+                            #   > Updates pending awaits with arrive_count <= 31
                             #   Second sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
@@ -547,9 +547,9 @@ def proc_3cycle_mbarriers():
                             # Await recorded, which caused VisRecord change:
                             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [192], "box": [32]}
                             #   barrier: BtoC[0, 5]
-                            #   arrive_count: 1 -> 1
+                            #   arrive_count: 32 -> 32
                             #   await_count:  0 -> 1
-                            #   > Updates pending awaits with arrive_count <= 0
+                            #   > Updates pending awaits with arrive_count <= 31
                             #   Second sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
@@ -624,7 +624,7 @@ def proc_3cycle_mbarriers():
                             # Last sync recorded:
                             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [320], "box": [64]}
                             #   barrier: CtoA[1, 5]
-                            #   arrive_count: 0 -> 1
+                            #   arrive_count: 0 -> 64
                             #   await_count:  0 -> 0
                             #   First sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
@@ -671,9 +671,9 @@ def proc_3cycle_mbarriers():
                             # Last sync recorded:
                             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [1], "box": [1]}
                             #   barrier: CtoA[1, 0]
-                            #   arrive_count: 1 -> 1
+                            #   arrive_count: 64 -> 64
                             #   await_count:  0 -> 1
-                            #   > Updates pending awaits with arrive_count <= 0
+                            #   > Updates pending awaits with arrive_count <= 63
                             #   Second sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
@@ -683,9 +683,9 @@ def proc_3cycle_mbarriers():
                             # Await recorded, which caused VisRecord change:
                             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [1]}
                             #   barrier: CtoA[0, 0]
-                            #   arrive_count: 1 -> 1
+                            #   arrive_count: 64 -> 64
                             #   await_count:  0 -> 1
-                            #   > Updates pending awaits with arrive_count <= 0
+                            #   > Updates pending awaits with arrive_count <= 63
                             #   Second sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
@@ -747,9 +747,9 @@ def proc_3cycle_mbarriers():
                                 # Last sync recorded:
                                 #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [1], "box": [1]}
                                 #   barrier: CtoA[1, 4]
-                                #   arrive_count: 1 -> 1
+                                #   arrive_count: 64 -> 64
                                 #   await_count:  0 -> 1
-                                #   > Updates pending awaits with arrive_count <= 0
+                                #   > Updates pending awaits with arrive_count <= 63
                                 #   Second sync-tl (set of qual-tl):
                                 #                cuda_in_order_rmem_qual
                                 #                cuda_in_order_ram_qual

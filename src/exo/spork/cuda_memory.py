@@ -634,7 +634,7 @@ class CudaMbarrier(CudaBasicDeviceBarrier):
             zero_await_N=True,
             supports_arrive_multicast=True,
             consistent_arrive_thread_count=True,
-            one_shot_arrive=True,
+            mbarrier_arrive_count=True,
             one_shot_await=False,
         )
 
@@ -736,7 +736,7 @@ class CudaClusterSync(CudaBasicDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierMechanismTraits:
         return BarrierMechanismTraits(
-            zero_await_N=True, one_shot_arrive=True, one_shot_await=True
+            zero_await_N=True, expect_one_arrive=True, one_shot_await=True
         )
 
     @classmethod

@@ -8,7 +8,9 @@ Tests never leave an access without a later sync (the trace only samples sync ev
 
 from __future__ import annotations
 
-from exo import proc, instr
+import pytest
+
+from exo import proc, instr, ring_buffer_by
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
@@ -269,7 +271,7 @@ def test_cluster_sync(compiler, tmp_path):
     ref.alloc("g", (2,))
 
     def task_body():
-        ref.alloc_barrier("cs", (), one_shot_arrive=True, one_shot_await=True)
+        ref.alloc_barrier("cs", (), expected=1, one_shot_await=True)
         for cta in range(2):
             ref.mutate("g", (cta,), [cta * 64], **gmem(convergent=True))
         ref.arrive(task, IN_ORDER, "cs")
@@ -616,4 +618,406 @@ def test_read_then_reduce_2_tasks_negative(compiler):
     """Only task 0 reads: task 1's TMA reduce must be rejected (WAR vs task 0's read)."""
     check_both_fail(
         mkproc_read_then_reduce(2, True), lambda: mkref_read_then_reduce(2, True)
+    )
+
+
+# =============================================================================
+# mbarrier literal arrive counts (endgame_plan/plan_multicast_barrier_counts.md)
+#
+# The mbarrier itself is never probed (its managed ring buffer is not modeled by
+# the reference); counts are observed through the PendingAwaits that Arrives put
+# on GMEM records, and through whether Awaits augment those records.
+# Every mbarrier has extent == ring depth, so no ring slot is reused.
+# =============================================================================
+
+
+def bars(var, idxs):
+    return [f"{var}[{', '.join(str(i) for i in idx)}]" for idx in idxs]
+
+
+def mkproc_mbarrier_multicast_2cta(arrive_warps):
+    # clusterDim=2, blockDim=128; warps [0, arrive_warps) of each CTA arrive.
+    @proc
+    def proc_mbarrier_multicast_2cta(g: f32[2] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=2, blockDim=128):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2, 1 @ ring_buffer_by(1)] @ CudaMbarrier
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    with CudaWarps(0, arrive_warps):
+                        for t in cuda_threads(0, 1):
+                            g[cta] = 0
+                        Arrive(cuda_in_order, 1) >> bar[cta, 0] >> bar[:, 0]
+                # Awaits in a later loop nest: the trace serializes the CTA loop.
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    Await(bar[cta, 0], cuda_in_order, 0)
+                    for t in cuda_threads(0, 1):
+                        g[1 - cta] += 1
+
+    return simplify(proc_mbarrier_multicast_2cta)
+
+
+def mkref_mbarrier_multicast_2cta(arrive_warps):
+    T = 32 * arrive_warps  # threads per Arrive
+    E = 2 * T  # mbarrier.init count: T threads x 2 CTAs
+    ref = SyncEnvRef([("g", (0,)), ("g", (1,))], threads_per_task=256)
+    ref.alloc("g", (2,))
+
+    def task_body():
+        ref.alloc_barrier("bar", (2, 1), expected=E, per_thread=True)
+        for cta in range(2):
+            base = cta * 128
+            ref.mutate("g", (cta,), [base], **gmem(convergent=True))
+            # Each target's own count: CTA 1's record gets z = T on both barriers.
+            ref.arrive(
+                ref.tids(base, base + T), IN_ORDER, bars("bar", [(0, 0), (1, 0)])
+            )
+        for cta in range(2):
+            base = cta * 128
+            ref.await_(ref.tids(base, base + 128), IN_ORDER, f"bar[{cta}, 0]")
+            ref.mutate("g", (1 - cta,), [base], **gmem(convergent=True))
+        ref.free_barrier("bar")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    return ref
+
+
+@pytest.mark.parametrize("arrive_warps", [1, 2])
+def test_mbarrier_multicast_2cta(compiler, tmp_path, arrive_warps):
+    errors = check_trace(
+        mkproc_mbarrier_multicast_2cta(arrive_warps),
+        mkref_mbarrier_multicast_2cta(arrive_warps),
+        tmp_path,
+    )
+    assert_no_errors(errors)
+
+
+def mkproc_mbarrier_multicast_4cta():
+    # clusterDim=4 as (m, n) = 2 x 2; multicast along n only (group of 2 CTAs).
+    @proc
+    def proc_mbarrier_multicast_4cta(g: f32[2, 2] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=4, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2, 2, 1 @ ring_buffer_by(1)] @ CudaMbarrier
+                for m in cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster):
+                    for n in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                        for t in cuda_threads(0, 1):
+                            g[m, n] = 0
+                        Arrive(cuda_in_order, 1) >> bar[m, n, 0] >> bar[m, :, 0]
+                for m in cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster):
+                    for n in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                        Await(bar[m, n, 0], cuda_in_order, 0)
+                        for t in cuda_threads(0, 1):
+                            g[m, 1 - n] += 1
+
+    return simplify(proc_mbarrier_multicast_4cta)
+
+
+def test_mbarrier_multicast_4cta(compiler, tmp_path):
+    E = 2 * 32  # 32 threads x 2 CTAs per multicast group
+    probes = [("g", (m, n)) for m in range(2) for n in range(2)]
+    ref = SyncEnvRef(probes, threads_per_task=128)
+    ref.alloc("g", (2, 2))
+
+    def task_body():
+        ref.alloc_barrier("bar", (2, 2, 1), expected=E, per_thread=True)
+        for m in range(2):
+            for n in range(2):
+                base = (2 * m + n) * 32
+                ref.mutate("g", (m, n), [base], **gmem(convergent=True))
+                # Row m only: bar[1 - m, ...] counts are untouched.
+                ref.arrive(
+                    ref.tids(base, base + 32),
+                    IN_ORDER,
+                    bars("bar", [(m, 0, 0), (m, 1, 0)]),
+                )
+        for m in range(2):
+            for n in range(2):
+                base = (2 * m + n) * 32
+                ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{m}, {n}, 0]")
+                ref.mutate("g", (m, 1 - n), [base], **gmem(convergent=True))
+        ref.free_barrier("bar")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    assert_no_errors(check_trace(mkproc_mbarrier_multicast_4cta(), ref, tmp_path))
+
+
+def mkproc_mbarrier_pre_arrive():
+    # bar[:, 0] is pre-arrived: Awaiting it needs no Arrive (count starts at E).
+    @proc
+    def proc_mbarrier_pre_arrive(g: f32[2] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=2, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2, 2 @ ring_buffer_by(2)] @ CudaMbarrierPreArrive(1)
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    Await(bar[cta, 0], cuda_in_order, 0)
+                    for t in cuda_threads(0, 1):
+                        g[cta] = 0
+                    Arrive(cuda_in_order, 1) >> bar[cta, 1] >> bar[:, 1]
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    Await(bar[cta, 1], cuda_in_order, 0)
+                    for t in cuda_threads(0, 1):
+                        g[1 - cta] += 1
+
+    return simplify(proc_mbarrier_pre_arrive)
+
+
+def test_mbarrier_pre_arrive(compiler, tmp_path):
+    E = 2 * 32
+    ref = SyncEnvRef([("g", (0,)), ("g", (1,))], threads_per_task=64)
+    ref.alloc("g", (2,))
+
+    def task_body():
+        ref.alloc_barrier("bar", (2, 2), expected=E, per_thread=True)
+        for cta in range(2):
+            ref.pre_arrive(ref.task_threads(), "bar", (cta, 0))
+        for cta in range(2):
+            base = cta * 32
+            ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, 0]")
+            ref.mutate("g", (cta,), [base], **gmem(convergent=True))
+            ref.arrive(
+                ref.tids(base, base + 32), IN_ORDER, bars("bar", [(0, 1), (1, 1)])
+            )
+        for cta in range(2):
+            base = cta * 32
+            ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, 1]")
+            ref.mutate("g", (1 - cta,), [base], **gmem(convergent=True))
+        ref.free_barrier("bar")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    assert_no_errors(check_trace(mkproc_mbarrier_pre_arrive(), ref, tmp_path))
+
+
+# Negative: an Await in the same CTA loop body as its multicast Arrive.
+# Valid CUDA, but the trace runs CTA 0's body before CTA 1's Arrive, so the
+# strict Await sees 32 of 64 arrives ("No forward progress"; documented conservatism).
+
+
+def mkproc_mbarrier_same_body_await():
+    @proc
+    def proc_mbarrier_same_body_await(g: f32[2] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=2, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2, 1 @ ring_buffer_by(1)] @ CudaMbarrier
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    for t in cuda_threads(0, 1):
+                        g[cta] = 0
+                    Arrive(cuda_in_order, 1) >> bar[cta, 0] >> bar[:, 0]
+                    Await(bar[cta, 0], cuda_in_order, 0)
+
+    return simplify(proc_mbarrier_same_body_await)
+
+
+def mkref_mbarrier_same_body_await():
+    ref = SyncEnvRef([("g", (0,))], threads_per_task=64)
+    ref.alloc("g", (2,))
+
+    def task_body():
+        ref.alloc_barrier("bar", (2, 1), expected=64, per_thread=True)
+        for cta in range(2):
+            base = cta * 32
+            ref.mutate("g", (cta,), [base], **gmem(convergent=True))
+            ref.arrive(
+                ref.tids(base, base + 32), IN_ORDER, bars("bar", [(0, 0), (1, 0)])
+            )
+            ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, 0]")
+        ref.free_barrier("bar")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    return ref
+
+
+def test_mbarrier_same_body_await_negative(compiler):
+    check_both_fail(mkproc_mbarrier_same_body_await(), mkref_mbarrier_same_body_await)
+
+
+# Negative: two Arrives on the same (ring depth 1) element: 128 > 64 arrives.
+
+
+def mkproc_mbarrier_too_many_arrives():
+    @proc
+    def proc_mbarrier_too_many_arrives(g: f32[2] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=2, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2, 1 @ ring_buffer_by(1)] @ CudaMbarrier
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    for t in cuda_threads(0, 1):
+                        g[cta] = 0
+                    Arrive(cuda_in_order, 1) >> bar[cta, 0] >> bar[:, 0]
+                    Arrive(cuda_in_order, 1) >> bar[cta, 0] >> bar[:, 0]
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    Await(bar[cta, 0], cuda_in_order, 0)
+
+    return simplify(proc_mbarrier_too_many_arrives)
+
+
+def mkref_mbarrier_too_many_arrives():
+    ref = SyncEnvRef([("g", (0,))], threads_per_task=64)
+    ref.alloc("g", (2,))
+
+    def task_body():
+        ref.alloc_barrier("bar", (2, 1), expected=64, per_thread=True)
+        for cta in range(2):
+            base = cta * 32
+            ref.mutate("g", (cta,), [base], **gmem(convergent=True))
+            for _ in range(2):
+                ref.arrive(
+                    ref.tids(base, base + 32), IN_ORDER, bars("bar", [(0, 0), (1, 0)])
+                )
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    return ref
+
+
+def test_mbarrier_too_many_arrives_negative(compiler):
+    check_both_fail(mkproc_mbarrier_too_many_arrives(), mkref_mbarrier_too_many_arrives)
+
+
+# The tests below were rejected statically by the multicast convergence check
+# (removed; plan_multicast_barrier_counts.md). Literal counts + strict Await
+# now decide them dynamically.
+
+
+def mkproc_mbarrier_seq_in_cta_loop():
+    # seq loop between the multicast iterator's cuda_threads loop and the Arrive.
+    @proc
+    def proc_mbarrier_seq_in_cta_loop(g: f32[2, 2] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=2, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2, 2 @ ring_buffer_by(2)] @ CudaMbarrier
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    for k in seq(0, 2):
+                        for t in cuda_threads(0, 1):
+                            g[cta, k] = 0
+                        Arrive(cuda_in_order, 1) >> bar[cta, k] >> bar[:, k]
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    for k in seq(0, 2):
+                        Await(bar[cta, k], cuda_in_order, 0)
+                        for t in cuda_threads(0, 1):
+                            g[1 - cta, k] += 1
+
+    return simplify(proc_mbarrier_seq_in_cta_loop)
+
+
+def test_mbarrier_seq_in_cta_loop(compiler, tmp_path):
+    probes = [("g", (c, k)) for c in range(2) for k in range(2)]
+    ref = SyncEnvRef(probes, threads_per_task=64)
+    ref.alloc("g", (2, 2))
+
+    def task_body():
+        ref.alloc_barrier("bar", (2, 2), expected=64, per_thread=True)
+        for cta in range(2):
+            base = cta * 32
+            for k in range(2):
+                ref.mutate("g", (cta, k), [base], **gmem(convergent=True))
+                ref.arrive(
+                    ref.tids(base, base + 32), IN_ORDER, bars("bar", [(0, k), (1, k)])
+                )
+        for cta in range(2):
+            base = cta * 32
+            for k in range(2):
+                ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, {k}]")
+                ref.mutate("g", (1 - cta, k), [base], **gmem(convergent=True))
+        ref.free_barrier("bar")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    assert_no_errors(check_trace(mkproc_mbarrier_seq_in_cta_loop(), ref, tmp_path))
+
+
+def mkproc_mbarrier_if_around_arrive():
+    # Invalid: only CTA 0 arrives, so CTA 1's arrives on bar[:, 0] never happen.
+    @proc
+    def proc_mbarrier_if_around_arrive(g: f32[2] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=2, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2, 1 @ ring_buffer_by(1)] @ CudaMbarrier
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    for t in cuda_threads(0, 1):
+                        g[cta] = 0
+                    if cta == 0:
+                        Arrive(cuda_in_order, 1) >> bar[cta, 0] >> bar[:, 0]
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    Await(bar[cta, 0], cuda_in_order, 0)
+
+    return simplify(proc_mbarrier_if_around_arrive)
+
+
+def mkref_mbarrier_if_around_arrive():
+    ref = SyncEnvRef([("g", (0,))], threads_per_task=64)
+    ref.alloc("g", (2,))
+
+    def task_body():
+        ref.alloc_barrier("bar", (2, 1), expected=64, per_thread=True)
+        for cta in range(2):
+            ref.mutate("g", (cta,), [cta * 32], **gmem(convergent=True))
+        ref.arrive(ref.tids(0, 32), IN_ORDER, bars("bar", [(0, 0), (1, 0)]))
+        ref.await_(ref.tids(0, 32), IN_ORDER, "bar[0, 0]")  # 32 of 64
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    return ref
+
+
+def test_mbarrier_if_around_arrive_negative(compiler):
+    check_both_fail(mkproc_mbarrier_if_around_arrive(), mkref_mbarrier_if_around_arrive)
+
+
+def mkproc_mbarrier_turnstile(lag):
+    # CTA 1 at iteration k waits (turnstile tb) for CTA 0 to reach iteration k + lag.
+    # lag=2 deadlocks in CUDA: CTA 0 blocks at Await(bar[0, 1]) waiting for CTA 1's
+    # iteration-1 Arrive, while CTA 1 waits in iteration 0 for CTA 0's iteration 2.
+    # lag=1 is valid CUDA, but the serialized trace can't show it (conservative).
+    # Formerly both passed sync_check if the convergence check was disabled.
+    K = 4
+    KL = K + lag
+
+    @proc
+    def proc_mbarrier_turnstile():
+        with CudaDeviceFunction(clusterDim=2, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2, K @ ring_buffer_by(K)] @ CudaMbarrier
+                tb: barrier[2, KL @ ring_buffer_by(KL)] @ CudaMbarrier
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    if cta == 1:
+                        for j in seq(0, lag):
+                            Arrive(cuda_in_order, 1) >> tb[cta, j] >> tb[:, j]
+                    for k in seq(0, K):
+                        Arrive(cuda_in_order, 1) >> bar[cta, k] >> bar[:, k]
+                        if cta == 0:
+                            Arrive(cuda_in_order, 1) >> tb[cta, k] >> tb[:, k]
+                        else:
+                            (
+                                Arrive(cuda_in_order, 1)
+                                >> tb[cta, k + lag]
+                                >> tb[:, k + lag]
+                            )
+                            Await(tb[cta, k + lag], cuda_in_order, 0)
+                        Await(bar[cta, k], cuda_in_order, 0)
+                    if cta == 0:
+                        for j in seq(K, KL):
+                            Arrive(cuda_in_order, 1) >> tb[cta, j] >> tb[:, j]
+
+    return simplify(proc_mbarrier_turnstile)
+
+
+def mkref_mbarrier_turnstile(lag):
+    K = 4
+    ref = SyncEnvRef([], threads_per_task=64)
+
+    def task_body():
+        ref.alloc_barrier("bar", (2, K), expected=64, per_thread=True)
+        ref.alloc_barrier("tb", (2, K + lag), expected=64, per_thread=True)
+        # CTA 0's whole body runs first in the trace.
+        tids = ref.tids(0, 32)
+        k = 0
+        ref.arrive(tids, IN_ORDER, bars("bar", [(0, k), (1, k)]))
+        ref.arrive(tids, IN_ORDER, bars("tb", [(0, k), (1, k)]))
+        ref.await_(tids, IN_ORDER, f"bar[0, {k}]")  # 32 of 64: no forward progress
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    return ref
+
+
+@pytest.mark.parametrize("lag", [1, 2])
+def test_mbarrier_turnstile_negative(compiler, lag):
+    check_both_fail(
+        mkproc_mbarrier_turnstile(lag), lambda: mkref_mbarrier_turnstile(lag)
     )

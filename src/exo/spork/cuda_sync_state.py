@@ -320,7 +320,9 @@ class SyncStateBuilder:
         num_per_cta = prod(const_shape)
         assert num_per_cta >= 1
         lines = self.SyncState_lines
-        arrive_count = coll_tilings.arrive_thread_count * len(cta_xor_list)
+        arrive_count = coll_tilings.mbarrier_expected_arrive_count(
+            self._blockDim(), thread_iters, usage.get_arrive()
+        )
         lines.append(f"// {name}: barrier @ {barrier_mechanism.name()}")
         lines.append(f"// num_per_cta={num_per_cta}; arrive_count={arrive_count}")
 

@@ -754,12 +754,12 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
     void exec_impl(const Arrive* node)
     {
-        const barrier_id home_barrier = fill_tmp_offset_barriers(node);
+        fill_tmp_offset_barriers(node);
         SyncvArrive param{};
-        param.home_barrier = home_barrier;
         param.barrier_count = uint32_t(tmp_all_barriers.size());
         param.all_barriers = tmp_all_barriers.data();
         param.L1_qual_bits = node->L1_qual_bits;
+        param.flags = node->flags;
 
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
@@ -816,9 +816,10 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     }
 
     template <typename Node>
-    barrier_id fill_tmp_offset_barriers(const Node* node)
+    void fill_tmp_offset_barriers(const Node* node)
     {
-        // Fill tmp_offset and tmp_all_barriers. Return home barrier.
+        // Fill tmp_offset and tmp_all_barriers (each multicast target once).
+        // tmp_offset is only the anchor of the compact ArriveIdx encoding; it has no other meaning.
         VarSlotEntry<barrier_id>& _slot = env.barrier_slot(node->name);
         tmp_barrier_name = node->name;
 
@@ -829,9 +830,6 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             tmp_all_barriers.push_back(slot.data()[linear_idx]);
         };
         eval_tmp_offset_multicast(node, _slot, callback);
-
-        const barrier_id home_barrier = _slot.idx(tmp_offset.begin(), tmp_offset.end());
-        return home_barrier;
     }
 
     void exec_impl(const Await* node)
@@ -1069,7 +1067,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         slot.resize(tmp_extent);
 
         // Allocate new barrier IDs.
-        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), node->flags);
+        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), node->flags, node->expected_arrive_count);
         if (trace_file) {
             for (size_t i = 0; i < slot.size(); ++i) {
                 std::stringstream s;

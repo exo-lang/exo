@@ -298,11 +298,14 @@ def mkproc_arrive_incompatible_multicasts(same_multicast):
     M_CTA = 2
     N_CTA = 2
 
+    # Each Arrive uses its own ring element (one mbarrier phase each), and the Awaits
+    # are in a later loop nest: sync-check serializes the CTA loops, so an Await in
+    # the same body as its multicast Arrive would see too few arrives.
     @proc
     def test_proc():
         with CudaDeviceFunction(clusterDim=M_CTA * N_CTA, blockDim=32):
             for task in cuda_tasks(0, 1):
-                bar: barrier[M_CTA, N_CTA, 1 @ ring_buffer_by(1)] @ CudaMbarrier
+                bar: barrier[M_CTA, N_CTA, 2 @ ring_buffer_by(2)] @ CudaMbarrier
                 for m_cta in cuda_threads(0, M_CTA, unit=N_CTA * cuda_cta_in_cluster):
                     for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
                         # First Arrive with multicast along n dimension
@@ -311,22 +314,24 @@ def mkproc_arrive_incompatible_multicasts(same_multicast):
                             >> bar[m_cta, n_cta, 0]
                             >> bar[m_cta, :, 0]
                         )
-                        Await(bar[m_cta, n_cta, 0], cuda_in_order, 0)
                         if same_multicast:
                             # Valid: same multicast pattern (along n)
                             (
                                 Arrive(cuda_in_order, 1)
-                                >> bar[m_cta, n_cta, 0]
-                                >> bar[m_cta, :, 0]
+                                >> bar[m_cta, n_cta, 1]
+                                >> bar[m_cta, :, 1]
                             )
                         else:
                             # Invalid: different multicast pattern (along m instead of n)
                             (
                                 Arrive(cuda_in_order, 1)
-                                >> bar[m_cta, n_cta, 0]
-                                >> bar[:, n_cta, 0]
+                                >> bar[m_cta, n_cta, 1]
+                                >> bar[:, n_cta, 1]
                             )
+                for m_cta in cuda_threads(0, M_CTA, unit=N_CTA * cuda_cta_in_cluster):
+                    for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
                         Await(bar[m_cta, n_cta, 0], cuda_in_order, 0)
+                        Await(bar[m_cta, n_cta, 1], cuda_in_order, 0)
 
     return simplify(test_proc)
 
@@ -334,6 +339,7 @@ def mkproc_arrive_incompatible_multicasts(same_multicast):
 def test_arrive_incompatible_multicasts_positive(compiler):
     # Valid: same multicast pattern on both Arrives
     compiler.cuda_cpu_test(mkproc_arrive_incompatible_multicasts, same_multicast=True)
+    mkproc_arrive_incompatible_multicasts(same_multicast=True).sync_check()
 
 
 def test_arrive_incompatible_multicasts_negative(compiler):

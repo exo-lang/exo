@@ -213,10 +213,14 @@ class SyncEnvRefError(Exception):
 
 
 class Barriers:
-    """ALL barrier counting lives here (plan_multicast_barrier_counts.md may change it):
-    arrive/await counts, which PendingAwaits an Arrive produces, which PendingAwait
-    an Await consumes, and the one-shot checks. Follows camspork (HamsterBarrierState);
-    amspork3 leaves the count increment to barrier-mechanism-specific de-sugaring.
+    """ALL barrier counting lives here: arrive/await counts, which PendingAwaits an
+    Arrive produces, which PendingAwait an Await consumes, and the expected-count checks.
+    amspork3 leaves the count increment to barrier-mechanism-specific de-sugaring;
+    this follows camspork (HamsterBarrierState), see plan_multicast_barrier_counts.md:
+    * Each target barrier's own count is read and incremented (no home barrier).
+    * per_thread (mbarrier): an Arrive adds its thread count, else 1.
+    * expected != 0: Await requires count == expected (forward progress),
+      count must not exceed it, and it must be reached by the end of the lifetime.
     """
 
     # Barriers are identified per allocation (alpha-renaming per loop iteration in amspork3;
@@ -227,41 +231,49 @@ class Barriers:
         self.n_instances = 0
         self.arrive_count: Dict[str, int] = {}  # keyed by instance
         self.await_count: Dict[str, int] = {}
-        self.one_shot_arrive: Dict[str, bool] = {}
+        self.expected: Dict[str, int] = {}
+        self.per_thread: Dict[str, bool] = {}
         self.one_shot_await: Dict[str, bool] = {}
 
-    def alloc(self, name: str, *, one_shot_arrive=False, one_shot_await=False):
+    def alloc(self, name: str, *, expected=0, per_thread=False, one_shot_await=False):
         bar = f"{name}#{self.n_instances}"
         self.n_instances += 1
         self.current[name] = bar
         self.arrive_count[bar] = 0
         self.await_count[bar] = 0
-        self.one_shot_arrive[bar] = one_shot_arrive
+        self.expected[bar] = expected
+        self.per_thread[bar] = per_thread
         self.one_shot_await[bar] = one_shot_await
 
     def free(self, name: str):
-        del self.current[name]
+        bar = self.current.pop(name)
+        E = self.expected[bar]
+        if E and self.arrive_count[bar] != E:
+            raise SyncEnvRefError(
+                f"Arrive count {self.arrive_count[bar]} != expected {E} at free of {name}"
+            )
 
     def counts(self, name: str) -> Optional[Tuple[int, int]]:
         bar = self.current.get(name)
         return None if bar is None else (self.arrive_count[bar], self.await_count[bar])
 
-    def arrive(self, name: str) -> Aw:
-        """Non-multicast Arrive: PendingAwait(bar, z) for z >= the count before arriving."""
-        bar = self.current[name]
-        z = self.arrive_count[bar]
-        self.arrive_count[bar] = z + 1
-        if self.one_shot_arrive[bar] and z != 0:
-            raise SyncEnvRefError(f"Arrived twice on one-shot arrive barrier {name}")
-        return frozenset([(bar, z)])
+    def arrive(self, targets: List[str], n_threads: int) -> Aw:
+        """PendingAwait(b, z) for z >= b's own count before arriving, for each target b."""
+        aw = []
+        for name in dict.fromkeys(targets):
+            bar = self.current[name]
+            z = self.arrive_count[bar]
+            self.arrive_count[bar] = z + (n_threads if self.per_thread[bar] else 1)
+            E = self.expected[bar]
+            if E and self.arrive_count[bar] > E:
+                raise SyncEnvRefError(f"Too many arrives on {name}")
+            aw.append((bar, z))
+        return frozenset(aw)
 
-    def arrive_multicast_mbarrier(self, home: str, targets: List[str]) -> Aw:
-        # DEVIATION (current camspork, mbarrier only; out of scope for now): only the home
-        # barrier's count is read and incremented; every target gets a PendingAwait tagged with it.
-        home_bar = self.current[home]
-        z = self.arrive_count[home_bar]
-        self.arrive_count[home_bar] = z + 1
-        return frozenset((self.current[t], z) for t in targets)
+    def pre_arrive(self, name: str):
+        bar = self.current[name]
+        assert self.expected[bar] and self.arrive_count[bar] == 0
+        self.arrive_count[bar] = self.expected[bar]
 
     def await_(self, name: str, N: int) -> Tuple[str, int]:
         # Tr-Await: z_await = arrive_count - lag - 1
@@ -269,8 +281,12 @@ class Barriers:
         self.await_count[bar] += 1
         if self.one_shot_await[bar] and self.await_count[bar] != 1:
             raise SyncEnvRefError(f"Awaited twice on one-shot await barrier {name}")
-        if self.one_shot_arrive[bar] and self.arrive_count[bar] == 0:
-            raise SyncEnvRefError(f"No forward progress: Await before Arrive on {name}")
+        E = self.expected[bar]
+        if E and self.arrive_count[bar] != E:
+            raise SyncEnvRefError(
+                f"No forward progress: Await on {name} with arrive count "
+                f"{self.arrive_count[bar]} of expected {E}"
+            )
         return (bar, self.arrive_count[bar] - N - 1)
 
 
@@ -318,8 +334,9 @@ class SyncEnvRef:
             del self.env[key]
 
     def alloc_barrier(self, var: str, shape: tuple, **flags):
-        """Barrier variable. Only sync-exempt mechanisms (commit groups, cluster sync)
-        for now: no sync env entries, just Barriers state."""
+        """Barrier variable: Barriers state only. The barrier variable's own sync env
+        (mbarriers are not sync-exempt) and its managed ring buffer are not modeled,
+        so tests must not probe mbarriers or reuse their ring slots."""
         self.shapes[var] = tuple(shape)
         for idx in itertools.product(*(range(n) for n in shape)):
             self.barriers.alloc(barrier_str(var, idx), **flags)
@@ -461,15 +478,26 @@ class SyncEnvRef:
             depth,
         )
 
-    def arrive(self, tids, L1: int, bar: str, *, depth=0):
+    def arrive(self, tids, L1: int, bar, *, depth=0):
+        """bar: one "name[idx]" or a list of them (multicast targets)."""
         tids = as_tids(tids)
         ob_in = obs(tids, L1)
+        targets = [bar] if isinstance(bar, str) else list(bar)
+        n_threads = sum(hi - lo for lo, hi in tids)
 
         def fn():
-            aw_out = self.barriers.arrive(bar)
+            aw_out = self.barriers.arrive(targets, n_threads)
             self._lambda(lambda r: r.syncs_with(ob_in), frozenset(), aw_out)
 
         self._sync("Arrive", tids, fn, depth)
+
+    def pre_arrive(self, tids, var: str, idx, *, depth=0):
+        """Pre-arrive (by the allocating threads, tids): count := expected, no PendingAwaits.
+        Traced as an Arrive event, like camspork."""
+        name = barrier_str(var, idx)
+        self._sync(
+            "Arrive", as_tids(tids), lambda: self.barriers.pre_arrive(name), depth
+        )
 
     def await_(self, tids, L2: int, bar: str, N: int = 0, *, depth=0):
         tids = as_tids(tids)

@@ -495,9 +495,15 @@ class BarrierMechanismTraits:
     # All Arrive statements must have the same thread count.
     consistent_arrive_thread_count: bool = False
 
-    # Sync-check allows exactly one arrive/await in the lifetime
-    # of each barrier array element if the corresponding flag is set.
-    one_shot_arrive: bool = False
+    # Sync-check expected arrive count of each barrier array element, checked by
+    # every Await (forward progress) and at the end of the element's lifetime.
+    #   expect_one_arrive: exactly 1 Arrive (each Arrive adds 1).
+    #   mbarrier_arrive_count: literal mbarrier count; each Arrive adds its thread count
+    #     to each target, and the expected count is the mbarrier.init count
+    #     (DistributedAllocState.mbarrier_expected_arrive_count).
+    expect_one_arrive: bool = False
+    mbarrier_arrive_count: bool = False
+    # Sync-check allows exactly one await in the lifetime of each barrier array element.
     one_shot_await: bool = False
 
     negative_await_N: bool = False  # TODO remove

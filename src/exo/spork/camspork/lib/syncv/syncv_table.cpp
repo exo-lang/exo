@@ -226,6 +226,7 @@ struct HamsterBarrierState
     refcnt_t refcnt = 1;
     int32_t arrive_count = 0;
     int32_t await_count = 0;
+    int32_t expected_arrive_count = 0;  // 0 = unchecked
     uint32_t flags = 0;
 
     // Weak references to HamsterPendingAwaitSet that refer to this HamsterBarrierState.
@@ -282,7 +283,7 @@ struct SyncvTrivialLogger
     {
     }
 
-    void history_set_sync_stmt_info(const SyncvArrive&, const HamsterBarrierState&, uint32_t)
+    void history_set_sync_stmt_info(const SyncvArrive&, barrier_id, const HamsterBarrierState&, uint32_t)
     {
     }
 
@@ -784,17 +785,11 @@ struct SyncvTable
                 CAMSPORK_REQUIRE(!exists, "Unexpected duplicate trailing barrier");
                 nodepool::id<HamsterBarrierState> state_id{bar_id.data};
 
+                // NB: we don't check the ordering of the trailing barrier access vs. later Arrives
+                // (e.g. mbarrier expect-tx vs. complete-tx); acknowledged gap.
                 int32_t arrive_count = 0;
                 if (!ForceArriveCount0) {
-                    const HamsterBarrierState& state = get(state_id);
-                    arrive_count = state.arrive_count;
-                    if ((state.flags & one_shot_arrive_flag) && arrive_count != 0) {
-                        throw SyncvBarrierFail{
-                            "Cannot use this barrier as trailing barrier after previous Arrive\n"
-                            "due to one-shot arrive requirement",
-                            bar_id
-                        };
-                    }
+                    arrive_count = get(state_id).arrive_count;
                 }
 
                 new_set.sorted_map.data.insert(insert_iter, PendingAwait{bar_id, arrive_count});
@@ -1108,8 +1103,9 @@ struct SyncvTable
         }
     }
 
-    void alloc_barriers(size_t N, barrier_id* barriers, uint32_t flags)
+    void alloc_barriers(size_t N, barrier_id* barriers, uint32_t flags, int32_t expected_arrive_count)
     {
+        CAMSPORK_REQUIRE_CMP(expected_arrive_count, >=, 0, "negative expected arrive count");
         for (size_t i = 0; i < N; ++i) {
             CAMSPORK_REQUIRE_CMP(barriers[i].data, ==, 0, "allocated barrier without free");
             nodepool::id<HamsterBarrierState> state_id;
@@ -1117,6 +1113,7 @@ struct SyncvTable
             barriers[i].data = state_id.id_bits;
 
             state.flags = flags;
+            state.expected_arrive_count = expected_arrive_count;
         }
     }
 
@@ -1129,11 +1126,13 @@ struct SyncvTable
             nodepool::id<HamsterBarrierState> state_id{barriers[i].data};
             const HamsterBarrierState& state = get(state_id);
             if (enable_checks) {
-                if (state.arrive_count != 1 && (state.flags & one_shot_arrive_flag)) {
+                if (state.expected_arrive_count != 0 && state.arrive_count != state.expected_arrive_count) {
                     std::string message = (
                         "Arrive count ("
                         + std::to_string(state.arrive_count)
-                        + ") needs to be 1 due to one-shot arrive requirement"
+                        + ") needs to be the expected arrive count ("
+                        + std::to_string(state.expected_arrive_count)
+                        + ") at end of barrier lifetime"
                     );
                     throw SyncvBarrierFail{std::move(message), barriers[i]};
                 }
@@ -1950,29 +1949,55 @@ struct SyncvTable
     {
         // NB augment_counter not changed, as Arrive does not augment any VisRecords.
         CAMSPORK_REQUIRE_CMP(arrive.L1_qual_bits & atomic_qual_mask, ==, 0, "atomic qual-tl in first sync-tl");
-        HamsterBarrierState& home_state = get(arrive.home_barrier);
-
-        const auto old_arrive_count = home_state.arrive_count;
-        const auto new_arrive_count = home_state.arrive_count + 1;
-        logger.history_set_sync_stmt_info(arrive, home_state, new_arrive_count);
-
         const auto count = arrive.barrier_count;
-        std::vector<PendingAwait> pending_awaits(count);
+        CAMSPORK_REQUIRE_CMP(count, >, 0, "Arrive with no barriers");
+        const bool pre_arrive = (arrive.flags & arrive_pre_arrive_flag) != 0;
+
+        // Each barrier's own arrive count is read and incremented.
+        // The increment is the thread count (mbarrier) or 1 (other barrier mechanisms).
+        std::vector<PendingAwait> pending_awaits;
+        if (!pre_arrive) {
+            pending_awaits.resize(count);
+        }
+        barrier_id too_many_arrives{};
         for (uint32_t i = 0; i < count; ++i) {
-            pending_awaits[i].hamster_barrier_id = arrive.all_barriers[i];
-            pending_awaits[i].arrive_count = old_arrive_count;
+            HamsterBarrierState& state = get(arrive.all_barriers[i]);
+            int32_t new_arrive_count;
+            if (pre_arrive) {
+                CAMSPORK_REQUIRE_CMP(state.expected_arrive_count, >, 0, "pre-arrive needs expected arrive count");
+                CAMSPORK_REQUIRE_CMP(state.arrive_count, ==, 0, "pre-arrive after Arrive");
+                new_arrive_count = state.expected_arrive_count;
+            }
+            else {
+                const int32_t increment = (state.flags & arrive_per_thread_flag)
+                                        ? int32_t(cuboid.box_num_threads()) : 1;
+                pending_awaits[i].hamster_barrier_id = arrive.all_barriers[i];
+                pending_awaits[i].arrive_count = state.arrive_count;
+                new_arrive_count = state.arrive_count + increment;
+            }
+            if (i == 0) {
+                // History log holds one barrier's counts per sync statement; log the first target.
+                logger.history_set_sync_stmt_info(arrive, arrive.all_barriers[0], state, new_arrive_count);
+            }
+            state.arrive_count = new_arrive_count;
+            if (state.expected_arrive_count != 0 && new_arrive_count > state.expected_arrive_count) {
+                too_many_arrives = arrive.all_barriers[i];
+            }
         }
 
-        home_state.arrive_count = new_arrive_count;
-        update_vis_records_for_arrive(
-                cuboid, arrive.L1_qual_bits, std::move(pending_awaits), logger);
-        memoize_modified(logger);
+        if (!pre_arrive) {
+            update_vis_records_for_arrive(
+                    cuboid, arrive.L1_qual_bits, std::move(pending_awaits), logger);
+            memoize_modified(logger);
+        }
 
-        // One-shot arrive checks
-        if ((home_state.flags & one_shot_arrive_flag)) {
-            if (new_arrive_count != 1) {
-                throw SyncvBarrierFail{"Arrived twice on one-shot arrive barrier", arrive.home_barrier};
-            }
+        if (too_many_arrives) {
+            const HamsterBarrierState& state = get(too_many_arrives);
+            throw SyncvBarrierFail{
+                "Too many arrives: arrive count " + std::to_string(state.arrive_count)
+                + " exceeds expected arrive count " + std::to_string(state.expected_arrive_count),
+                too_many_arrives
+            };
         }
     }
 
@@ -2031,15 +2056,15 @@ struct SyncvTable
                 throw SyncvBarrierFail{"Awaited twice on one-shot await barrier", await.bar};
             }
         }
-        if ((state.flags & one_shot_arrive_flag)) {
-            if (state.arrive_count == 0) {
-                throw SyncvBarrierFail{
-                    "No forward progress.\n"
-                    "The underlying program may or may not be deadlock-free,\n"
-                    "but the given loop nest results in an Await before an Arrive.",
-                    await.bar
-                };
-            }
+        if (state.expected_arrive_count != 0 && state.arrive_count != state.expected_arrive_count) {
+            throw SyncvBarrierFail{
+                "No forward progress.\n"
+                "The underlying program may or may not be deadlock-free,\n"
+                "but the given loop nest results in an Await before all expected Arrives\n"
+                "(arrive count " + std::to_string(state.arrive_count)
+                + " of expected " + std::to_string(state.expected_arrive_count) + ").",
+                await.bar
+            };
         }
     }
 
@@ -2608,6 +2633,7 @@ struct SyncvTable
         const HamsterBarrierState& state = get(nodepool::id<HamsterBarrierState>{id.data});
         out->arrive_count = state.arrive_count;
         out->await_count = state.await_count;
+        out->expected_arrive_count = state.expected_arrive_count;
         out->flags = state.flags;
     }
 
@@ -3226,7 +3252,8 @@ struct SyncvRealLogger
         }
     }
 
-    void history_set_sync_stmt_info(const SyncvArrive& arrive, const HamsterBarrierState& state, uint32_t new_arrive_count)
+    void history_set_sync_stmt_info(
+            const SyncvArrive& arrive, barrier_id bar, const HamsterBarrierState& state, uint32_t new_arrive_count)
     {
         if (p_history_log) {
             LoggedSyncStmtValues values{};
@@ -3237,7 +3264,7 @@ struct SyncvRealLogger
             values.await_count_before = state.await_count;
             values.await_count_after = state.await_count;
             values.sync_stmt_name = "Arrive";
-            p_history_log->set_syncv_sync_stmt_info(arrive.home_barrier, std::move(values));
+            p_history_log->set_syncv_sync_stmt_info(bar, std::move(values));
         }
     }
 
@@ -3531,10 +3558,10 @@ void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array)
     INTERFACE_EPILOGUE(table)
 }
 
-void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags)
+void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags, int32_t expected_arrive_count)
 {
     INTERFACE_PROLOGUE(table)
-    table->alloc_barriers(N, barriers, flags);
+    table->alloc_barriers(N, barriers, flags, expected_arrive_count);
     INTERFACE_EPILOGUE(table)
 }
 

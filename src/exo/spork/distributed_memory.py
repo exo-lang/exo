@@ -21,7 +21,6 @@ from .coll_algebra import (
 from .barrier_usage import BarrierUsage, SyncInfo
 from .loop_modes import _CodegenPar, _CodegenNamedWarps
 from .sync_types import SyncType
-from .base_with_context import is_if_holding_with
 
 
 @dataclass(slots=True)
@@ -204,6 +203,15 @@ class DistributedAllocState(object):
         count = self.arrive_thread_count
         assert isinstance(count, int), count
         return count
+
+    def mbarrier_expected_arrive_count(
+        self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], sync_info: SyncInfo
+    ) -> int:
+        """The mbarrier.init count: each thread of each Arrive arrives once on
+        each CTA it multicasts to, and each mbarrier receives arrives from
+        len(cta_xor_list) CTAs. Shared by codegen and sync-check."""
+        cta_xor_list = self.cta_xor_list(blockDim, thread_iters, sync_info)
+        return self.get_arrive_thread_count() * len(cta_xor_list)
 
     def get_distributed_extents(self) -> Tuple[int]:
         return tuple(
@@ -560,7 +568,6 @@ class DistributedIdxFsm:
     def consume_SyncStmt_idx(
         self,
         state: DistributedAllocState,
-        stmt_stack: List[LoopIR.stmt],
         sync_stmt: LoopIR.SyncStmt,
         typ: LoopIR.type,
         i: int,
@@ -571,45 +578,19 @@ class DistributedIdxFsm:
         idx_node=s.home_barrier_expr().
 
         """
-        const_extent, iter_sym = self.consume_idx(state, i)
+        const_extent, _ = self.consume_idx(state, i)
 
-        # Range check for intervals
-        any_multicast = False
+        # Range check for intervals.
+        # There's no convergence requirement for multicast iterators; sync-check
+        # catches missing peer arrives through literal mbarrier arrive counts.
         for e in sync_stmt.barriers:
             idx = e.idx[i]
             if isinstance(idx, LoopIR.Interval):
-                any_multicast = True
                 lo, hi = idx.lo, idx.hi
                 if not isinstance(lo, LoopIR.Const) or lo.val != 0:
                     self.bad_idx(e, f"Expected idx[{i}] to be 0:{const_extent}")
                 if not isinstance(hi, LoopIR.Const) or hi.val != const_extent:
                     self.bad_idx(e, f"Expected idx[{i}] to be 0:{const_extent}")
-
-        # Check convergence requirement for multicasted iterators.
-        # Go from root-to-leaf of AST, and complain if there are seq-for or
-        # there are if-else (not with) between the loop that defines the
-        # multicast iterator and the SyncStmt.
-        if any_multicast:
-            iter_sym_loop = None
-            for s in stmt_stack:
-                if iter_sym_loop is None:
-                    if isinstance(s, LoopIR.For) and s.iter == iter_sym:
-                        iter_sym_loop = s
-                else:
-                    # Now within the loop found, start enforcing
-                    sus = None
-                    if is_if_holding_with(s, LoopIR):
-                        pass
-                    elif isinstance(s, LoopIR.If):
-                        sus = f"if {s.cond}"
-                    elif isinstance(s, LoopIR.For) and not s.loop_mode.is_par():
-                        sus = f"for {s.iter} in {s.loop_mode.format_loop_cond(s.lo, s.hi)}"
-                    if sus:
-                        raise ValueError(
-                            f"{sync_stmt.srcinfo}: multicasted {iter_sym} fails "
-                            f"convergence requirement due to `{sus}` at "
-                            f"{s.srcinfo} (SyncStmt: {sync_stmt})"
-                        )
 
     def is_done(self):
         """True if we should not call consume_idx() again."""

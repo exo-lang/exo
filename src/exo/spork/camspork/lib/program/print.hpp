@@ -204,7 +204,7 @@ class ProgramPrinter
         // multicasts: transpose bits in multicast_per_expr to recover this.
         *this << ", barrier_multicasts=(";
         print_multicasts(node);
-        *this << "))\n";
+        *this << "), flags=" << node->flags << ")\n";
     }
 
     void operator() (const Await* node)
@@ -259,7 +259,8 @@ class ProgramPrinter
         print_tabs();
         *this << "b.BarrierEnvAlloc(" << node->name;
         print_idx(node);
-        *this << ", flags=" << node->flags << ")\n";
+        *this << ", flags=" << node->flags;
+        *this << ", expected_arrive_count=" << node->expected_arrive_count << ")\n";
     }
 
     void operator() (const DataFree* node)

@@ -101,6 +101,7 @@ class CamsporkDo(LoopIR_Do):
         "_coll_tiling",
         "_coll_env",
         "_no_smem_free_check",
+        "_blockDim",
     ]
 
     _builder: camspork.ProgramBuilder
@@ -119,6 +120,7 @@ class CamsporkDo(LoopIR_Do):
     _coll_tiling: Optional[CollTiling]
     _coll_env: Dict[CollParam, int]
     _no_smem_free_check: bool
+    _blockDim: Optional[int]
 
     def __init__(
         self,
@@ -136,6 +138,7 @@ class CamsporkDo(LoopIR_Do):
         self.proc = p
         self._builder = builder
         self._coll_analysis = coll_analysis
+        self._blockDim = None
         self._value_syms = value_syms
         self._sync_syms = sync_syms
         self._envtyp = {}
@@ -318,6 +321,7 @@ class CamsporkDo(LoopIR_Do):
                 cpu_bit = timelines.cpu_in_order_qual.as_bit()
                 clusterDim = ctx.clusterDim
                 blockDim = ctx.blockDim
+                self._blockDim = blockDim
                 domain = (clusterDim, blockDim) if clusterDim != 1 else (blockDim,)
                 # Implicit (cpu, cuda_stream) -> cuda_stream sync before;
                 # End CudaDeviceFunction with JoinThreads.
@@ -395,13 +399,26 @@ class CamsporkDo(LoopIR_Do):
                 am_array = self.comp_index_expr(s.name, s.type.shape(), instr_tl)
             if want_barrier:
                 flags = 0
+                expected_arrive_count = 0
                 traits: BarrierMechanismTraits
                 traits = s.mem.traits()
-                if traits.one_shot_arrive:
-                    flags |= b.one_shot_arrive_flag
+                if traits.expect_one_arrive:
+                    expected_arrive_count = 1
+                if traits.mbarrier_arrive_count:
+                    flags |= b.arrive_per_thread_flag
+                    expected_arrive_count = (
+                        self._coll_analysis.mbarrier_expected_arrive_count(
+                            s.name, self._blockDim
+                        )
+                    )
                 if traits.one_shot_await:
                     flags |= b.one_shot_await_flag
-                b.BarrierEnvAlloc(am_array, flags=flags, srcinfo=s.srcinfo)
+                b.BarrierEnvAlloc(
+                    am_array,
+                    flags=flags,
+                    expected_arrive_count=expected_arrive_count,
+                    srcinfo=s.srcinfo,
+                )
             if want_sync:
                 b.SyncEnvAlloc(am_array, srcinfo=s.srcinfo)
             if want_value:
@@ -434,7 +451,13 @@ class CamsporkDo(LoopIR_Do):
                 barrier_name = b.get_varname(s.name)
                 for idx in itertools.product(*ranges):
                     if idx[ring_dim_idx] < pre_arrive:
-                        b.Arrive(0, barrier_name[idx], multicasts, srcinfo=s.srcinfo)
+                        b.Arrive(
+                            0,
+                            barrier_name[idx],
+                            multicasts,
+                            flags=b.arrive_pre_arrive_flag,
+                            srcinfo=s.srcinfo,
+                        )
 
             # Set up managed ring buffer, if applicable.
             if ring_dim_idx is not None:

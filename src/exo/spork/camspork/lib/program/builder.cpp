@@ -181,9 +181,10 @@ StmtRef ProgramBuilder::add_Fence(
 
 StmtRef ProgramBuilder::add_Arrive(
         qual_bits_t L1_qual_bits,
-        Varname name, uint32_t num_idx, const ArriveIdx* idx)
+        Varname name, uint32_t num_idx, const ArriveIdx* idx, uint32_t flags)
 {
-    return append_impl(Arrive{name, L1_qual_bits}, num_idx, idx);
+    CAMSPORK_REQUIRE_CMP(flags, <=, arrive_pre_arrive_flag, "Unknown Arrive flag");
+    return append_impl(Arrive{name, L1_qual_bits, flags}, num_idx, idx);
 }
 
 StmtRef ProgramBuilder::add_Await(
@@ -210,10 +211,12 @@ StmtRef ProgramBuilder::add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, co
     return append_impl(ExpectSyncEnvAlloc{name}, num_dims, extent);
 }
 
-StmtRef ProgramBuilder::add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags)
+StmtRef ProgramBuilder::add_BarrierEnvAlloc(
+        Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags, int32_t expected_arrive_count)
 {
-    CAMSPORK_REQUIRE_CMP(flags, <=, one_shot_arrive_flag | one_shot_await_flag, "Unknown BarrierEnvAlloc flag");
-    return append_impl(BarrierEnvAlloc{name, flags}, num_dims, extent);
+    CAMSPORK_REQUIRE_CMP(flags & ~(one_shot_await_flag | arrive_per_thread_flag), ==, 0, "Unknown BarrierEnvAlloc flag");
+    CAMSPORK_REQUIRE_CMP(expected_arrive_count, >=, 0, "Negative expected arrive count");
+    return append_impl(BarrierEnvAlloc{name, flags, expected_arrive_count}, num_dims, extent);
 }
 
 StmtRef ProgramBuilder::add_DataFree(Varname name)
@@ -516,10 +519,10 @@ camspork_RawStmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
 
 camspork_RawStmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
         camspork::qual_bits_t L1_qual_bits,
-        camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx)
+        camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx, uint32_t flags)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_Arrive(L1_qual_bits, name, num_idx, idx);
+    return p_builder->add_Arrive(L1_qual_bits, name, num_idx, idx, flags);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
@@ -557,10 +560,11 @@ camspork_RawStmtRef camspork_add_ExpectSyncEnvAlloc(camspork::ProgramBuilder* p_
 }
 
 camspork_RawStmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags)
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags,
+    int32_t expected_arrive_count)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_BarrierEnvAlloc(name, num_dims, extent, flags);
+    return p_builder->add_BarrierEnvAlloc(name, num_dims, extent, flags, expected_arrive_count);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

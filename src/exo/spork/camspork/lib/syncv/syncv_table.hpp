@@ -83,7 +83,8 @@ struct BarrierDebugData
 {
     int32_t arrive_count;
     int32_t await_count;
-    uint32_t flags;  // one_shot_arrive_flag, one_shot_await_flag
+    int32_t expected_arrive_count;  // 0 = unchecked
+    uint32_t flags;  // one_shot_await_flag, arrive_per_thread_flag
 };
 
 // Window into a multidimensional array of assignment records.
@@ -162,10 +163,12 @@ struct SyncvFence
 
 struct SyncvArrive
 {
-    barrier_id home_barrier;
+    // Every barrier the Arrive targets, without duplicates.
+    // Each one's own arrive count is read and incremented (no "home barrier").
     uint32_t barrier_count;
     const barrier_id* all_barriers;
     qual_bits_t L1_qual_bits;
+    uint32_t flags;  // arrive_pre_arrive_flag
 };
 
 struct SyncvAwait
@@ -215,7 +218,7 @@ void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, decltype(nullp
 void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, const SyncvLogRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
-void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags);
+void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags, int32_t expected_arrive_count);
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check_arrive_await);
 void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, const SyncvLogRequest&);
 void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, decltype(nullptr) = nullptr);
