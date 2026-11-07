@@ -56,89 +56,9 @@ def proc_3cycle_mbarriers():
         # task = 0
         for task in cuda_tasks(0, 1):
             # distributed dims: 0, thread pitch tuple () from Await @ tests/cuda/test_3cycle_mbarrier.py:71:16:(s10)
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: AtoB[0, 0]
-            #   arrive_count: 0 -> 1
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: AtoB[0, 1]
-            #   arrive_count: 0 -> 1
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: AtoB[1, 0]
-            #   arrive_count: 0 -> 1
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: AtoB[1, 1]
-            #   arrive_count: 0 -> 1
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
             AtoB: barrier[2, (25 + 2) @ (ring_buffer_by(
                 depth=6))] @ CudaMbarrierPreArrive(2, )
             # distributed dims: 0, thread pitch tuple () from Arrive @ tests/cuda/test_3cycle_mbarrier.py:72:16:(s20)
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: BtoC[0, 0]
-            #   arrive_count: 0 -> 32
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: BtoC[0, 1]
-            #   arrive_count: 0 -> 32
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: BtoC[0, 2]
-            #   arrive_count: 0 -> 32
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: BtoC[1, 0]
-            #   arrive_count: 0 -> 32
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: BtoC[1, 1]
-            #   arrive_count: 0 -> 32
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: BtoC[1, 2]
-            #   arrive_count: 0 -> 32
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # New VisRecord:
@@ -146,22 +66,6 @@ def proc_3cycle_mbarriers():
             BtoC: barrier[2, (25 + 3) @ (ring_buffer_by(
                 depth=6))] @ CudaMbarrierPreArrive(3, )
             # distributed dims: 0, thread pitch tuple () from Arrive @ tests/cuda/test_3cycle_mbarrier.py:73:16:(s30)
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:73:16:(s30):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: CtoA[0, 0]
-            #   arrive_count: 0 -> 64
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
-            #
-            # tests/cuda/test_3cycle_mbarrier.py:73:16:(s30):
-            # Last sync recorded:
-            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
-            #   barrier: CtoA[1, 0]
-            #   arrive_count: 0 -> 64
-            #   await_count:  0 -> 0
-            #   First sync-tl (set of qual-tl):
             CtoA: barrier[2, (25 + 1) @ (ring_buffer_by(
                 depth=6))] @ CudaMbarrierPreArrive(1, )
             # tests/cuda/test_3cycle_mbarrier.py:74:16:(s240):

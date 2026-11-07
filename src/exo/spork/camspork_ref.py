@@ -235,11 +235,21 @@ class Barriers:
         self.per_thread: Dict[str, bool] = {}
         self.one_shot_await: Dict[str, bool] = {}
 
-    def alloc(self, name: str, *, expected=0, per_thread=False, one_shot_await=False):
+    def alloc(
+        self,
+        name: str,
+        *,
+        expected=0,
+        per_thread=False,
+        one_shot_await=False,
+        pre_arrived=False,
+    ):
+        """pre_arrived: start with arrive count = expected (no PendingAwaits)."""
+        assert expected or not pre_arrived
         bar = f"{name}#{self.n_instances}"
         self.n_instances += 1
         self.current[name] = bar
-        self.arrive_count[bar] = 0
+        self.arrive_count[bar] = expected if pre_arrived else 0
         self.await_count[bar] = 0
         self.expected[bar] = expected
         self.per_thread[bar] = per_thread
@@ -269,11 +279,6 @@ class Barriers:
                 raise SyncEnvRefError(f"Too many arrives on {name}")
             aw.append((bar, z))
         return frozenset(aw)
-
-    def pre_arrive(self, name: str):
-        bar = self.current[name]
-        assert self.expected[bar] and self.arrive_count[bar] == 0
-        self.arrive_count[bar] = self.expected[bar]
 
     def await_(self, name: str, N: int) -> Tuple[str, int]:
         # Tr-Await: z_await = arrive_count - lag - 1
@@ -333,13 +338,18 @@ class SyncEnvRef:
         for key in [k for k in self.env if k[0] == var]:
             del self.env[key]
 
-    def alloc_barrier(self, var: str, shape: tuple, **flags):
+    def alloc_barrier(
+        self, var: str, shape: tuple, *, ring_dim=None, pre_arrive=0, **flags
+    ):
         """Barrier variable: Barriers state only. The barrier variable's own sync env
         (mbarriers are not sync-exempt) and its managed ring buffer are not modeled,
-        so tests must not probe mbarriers or reuse their ring slots."""
+        so tests must not probe mbarriers or reuse their ring slots.
+        Pre-arrive: elements with idx[ring_dim] < pre_arrive start at the expected count.
+        """
         self.shapes[var] = tuple(shape)
         for idx in itertools.product(*(range(n) for n in shape)):
-            self.barriers.alloc(barrier_str(var, idx), **flags)
+            pre_arrived = bool(pre_arrive) and idx[ring_dim] < pre_arrive
+            self.barriers.alloc(barrier_str(var, idx), pre_arrived=pre_arrived, **flags)
 
     def free_barrier(self, var: str):
         for idx in itertools.product(*(range(n) for n in self.shapes[var])):
@@ -490,14 +500,6 @@ class SyncEnvRef:
             self._lambda(lambda r: r.syncs_with(ob_in), frozenset(), aw_out)
 
         self._sync("Arrive", tids, fn, depth)
-
-    def pre_arrive(self, tids, var: str, idx, *, depth=0):
-        """Pre-arrive (by the allocating threads, tids): count := expected, no PendingAwaits.
-        Traced as an Arrive event, like camspork."""
-        name = barrier_str(var, idx)
-        self._sync(
-            "Arrive", as_tids(tids), lambda: self.barriers.pre_arrive(name), depth
-        )
 
     def await_(self, tids, L2: int, bar: str, N: int = 0, *, depth=0):
         tids = as_tids(tids)

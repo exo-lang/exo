@@ -168,7 +168,6 @@ struct SyncvArrive
     uint32_t barrier_count;
     const barrier_id* all_barriers;
     qual_bits_t L1_qual_bits;
-    uint32_t flags;  // arrive_pre_arrive_flag
 };
 
 struct SyncvAwait
@@ -218,7 +217,12 @@ void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, decltype(nullp
 void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, const SyncvLogRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
-void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags, int32_t expected_arrive_count);
+// Allocate N barriers (a C-order array) with the given flags and expected arrive count.
+// Pre-arrive: barriers whose index on the managed ring buffer dimension is less than pre_arrive_count
+// start with arrive count = expected arrive count (no PendingAwaits). That index of barrier i
+// is (i / ring_dim_stride) % ring_dim_extent; ignored if pre_arrive_count == 0.
+void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags, int32_t expected_arrive_count,
+                    uint32_t ring_dim_stride, uint32_t ring_dim_extent, uint32_t pre_arrive_count);
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check_arrive_await);
 void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, const SyncvLogRequest&);
 void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, decltype(nullptr) = nullptr);

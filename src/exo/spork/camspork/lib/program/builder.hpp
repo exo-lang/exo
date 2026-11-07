@@ -143,7 +143,7 @@ class ProgramBuilder
         qual_bits_t L2_qual_bits);
     StmtRef add_Arrive(
         qual_bits_t L1_qual_bits,
-        Varname name, uint32_t num_idx, const ArriveIdx* idx, uint32_t flags);
+        Varname name, uint32_t num_idx, const ArriveIdx* idx);
     StmtRef add_Await(
         Varname name, uint32_t num_idx, const ExprRef* idx,
         uint32_t L2_qual_bits, int32_t N);
@@ -151,7 +151,8 @@ class ProgramBuilder
     StmtRef add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags);
     StmtRef add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_BarrierEnvAlloc(
-        Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags, int32_t expected_arrive_count);
+        Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags, int32_t expected_arrive_count,
+        uint32_t managed_ring_buffer_dim_idx, uint32_t pre_arrive_count);
     StmtRef add_DataFree(Varname name);
     StmtRef add_BarrierFree(Varname name);
     StmtRef add_JoinThreads();
@@ -246,7 +247,7 @@ CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_Fence(camspork::ProgramBuilder*
     camspork::qual_bits_t L2_qual_bits);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
     camspork::qual_bits_t L1_qual_bits,
-    camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx, uint32_t flags);
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
     uint32_t L2_qual_bits, int32_t N);
@@ -258,7 +259,7 @@ CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_ExpectSyncEnvAlloc(camspork::Pr
     camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags,
-    int32_t expected_arrive_count);
+    int32_t expected_arrive_count, uint32_t managed_ring_buffer_dim_idx, uint32_t pre_arrive_count);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_DataFree(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_BarrierFree(camspork::ProgramBuilder* p_builder,

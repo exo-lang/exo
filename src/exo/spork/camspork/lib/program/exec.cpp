@@ -759,7 +759,6 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         param.barrier_count = uint32_t(tmp_all_barriers.size());
         param.all_barriers = tmp_all_barriers.data();
         param.L1_qual_bits = node->L1_qual_bits;
-        param.flags = node->flags;
 
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
@@ -1067,7 +1066,20 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         slot.resize(tmp_extent);
 
         // Allocate new barrier IDs.
-        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), node->flags, node->expected_arrive_count);
+        // Pre-arrive: stride and extent of the managed ring buffer dimension (C order).
+        uint32_t ring_dim_stride = 0, ring_dim_extent = 0;
+        if (node->pre_arrive_count != 0) {
+            const auto& extent = slot.extent();
+            const uint32_t M = node->managed_ring_buffer_dim_idx;
+            CAMSPORK_REQUIRE_CMP(M, <, extent.size(), "pre-arrive: managed_ring_buffer_dim_idx out of range");
+            ring_dim_stride = 1;
+            for (size_t i = M + 1; i < extent.size(); ++i) {
+                ring_dim_stride *= extent[i];
+            }
+            ring_dim_extent = extent[M];
+        }
+        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), node->flags, node->expected_arrive_count,
+                       ring_dim_stride, ring_dim_extent, node->pre_arrive_count);
         if (trace_file) {
             for (size_t i = 0; i < slot.size(); ++i) {
                 std::stringstream s;

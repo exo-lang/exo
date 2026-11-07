@@ -767,9 +767,10 @@ def test_mbarrier_pre_arrive(compiler, tmp_path):
     ref.alloc("g", (2,))
 
     def task_body():
-        ref.alloc_barrier("bar", (2, 2), expected=E, per_thread=True)
-        for cta in range(2):
-            ref.pre_arrive(ref.task_threads(), "bar", (cta, 0))
+        # bar[:, 0] pre-arrived at allocation (no trace event).
+        ref.alloc_barrier(
+            "bar", (2, 2), expected=E, per_thread=True, ring_dim=1, pre_arrive=1
+        )
         for cta in range(2):
             base = cta * 32
             ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, 0]")
