@@ -167,7 +167,6 @@ struct AssignmentRecord
     refcnt_t refcnt = 0;
 
     // Zero or more mutate visibility records.
-    // I think multiple mutate visibility records are needed only for atomics.
     nodepool::id<DefaultAssignmentRecordVisNode> mutate_vis_records_head_id{0};
 
     // Zero or more read visibility records.
@@ -2323,18 +2322,11 @@ struct SyncvTable
             // Add new visibility record (either as new mutate visibility record, or appended read visibility record).
             if constexpr (IsMutate) {
                 // Clear out read visibility records upon write.
-                // If not atomic, clear mutate visibility records too.
-                // Add the new mutate visibility records.
+                // Prior mutate visibility records are kept (atomic or not), and
+                // the new mutate visibility records are added.
                 assignment_record_remove_vis_records(&assignment_record.read_vis_records_head_id);
-                if (access.atomic_qual_bits != 0) {
-                    extend_vis_records(&assignment_record.mutate_vis_records_head_id, assignment_record.free_on_arrive);
-                    lazy_remove_duplicates(&assignment_record);  // << IMPORTANT for performance
-                }
-                else {
-                    assignment_record_remove_vis_records(&assignment_record.mutate_vis_records_head_id);
-                    extend_vis_records(&assignment_record.mutate_vis_records_head_id, assignment_record.free_on_arrive);
-                    assignment_record.lazy_last_augment_counter_bits = get_augment_counter_bits();
-                }
+                extend_vis_records(&assignment_record.mutate_vis_records_head_id, assignment_record.free_on_arrive);
+                lazy_remove_duplicates(&assignment_record);  // << IMPORTANT for performance
             }
             else {
                 // Add the new visibility records to the list of read visibility records.
