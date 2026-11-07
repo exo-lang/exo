@@ -142,13 +142,9 @@ class _CodegenPar:
     # Omit test if a None bound is given.
     static_bounds: Optional[Tuple[int, int]]
 
-    # If not None, subtree of code shall only be executed by warps
-    # whose name matches the str given.
-    warp_name_filter: Optional[str]
-
     domain: Tuple[int]
 
-    # Arguments for amspork ThreadsFor
+    # Arguments for camspork ThreadsFor
     # am_dim_idx=None when the ThreadsFor should be omitted
     # due to no actual change to the CollTiling.
     am_dim_idx: Optional[int]
@@ -166,3 +162,25 @@ class _CodegenPar:
         lo, hi = self.static_bounds
         assert lo is None or isinstance(lo, int)
         assert hi is None or isinstance(hi, int)
+
+
+@loop_mode_class("_codegen_named_warps", True)
+class _CodegenNamedWarps:
+    """Internal use loop mode: subtree executed only by warps named warp_name.
+
+    The CUDA backend needs no thread index test (the deviceMainLoop is
+    unswitched per warp name, and the subtree is removed for other names),
+    but sync_check needs the am_* values since it doesn't do that unswitching.
+    """
+
+    warp_name: str
+
+    domain: Tuple[int]
+
+    # Arguments for camspork ThreadsFor (see _CodegenPar)
+    am_dim_idx: Optional[int]
+    am_offset: int
+    am_box: int
+
+    def __post_init__(self):
+        assert isinstance(self.warp_name, str)

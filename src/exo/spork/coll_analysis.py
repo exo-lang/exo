@@ -28,7 +28,7 @@ from .coll_algebra import (
 )
 from .cuda_memory import CudaBasicDeviceVisible, CudaBasicDeviceBarrier
 from .cuda_warp_config import WarpLayoutInfo
-from .loop_modes import CudaThreads, _CodegenPar
+from .loop_modes import CudaThreads, _CodegenPar, _CodegenNamedWarps
 from .timelines import Qual_tl, Sync_tl
 from .with_cuda_warps import CudaWarps
 
@@ -38,8 +38,8 @@ coll_idx_e_types = (LoopIR.Read, LoopIR.WindowExpr)
 coll_idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
 
 
-def wrap_codegen_par(codegen_par, body, srcinfo, iter_sym=None):
-    assert isinstance(codegen_par, _CodegenPar)
+def wrap_codegen_par(codegen_loop_mode, body, srcinfo, iter_sym=None):
+    assert isinstance(codegen_loop_mode, (_CodegenPar, _CodegenNamedWarps))
     if iter_sym is None:
         iter_sym = Sym("tmp")
     return LoopIR.For(
@@ -47,7 +47,7 @@ def wrap_codegen_par(codegen_par, body, srcinfo, iter_sym=None):
         LoopIR.Const(0, T.int, srcinfo),
         LoopIR.Const(1, T.int, srcinfo),
         body,
-        codegen_par,
+        codegen_loop_mode,
         srcinfo,
     )
 
@@ -60,7 +60,7 @@ class CollAnalysis(LoopIR_Rewrite):
     And rewrites
         * cuda_threads loops
         * CudaWarps blocks
-    into _CodegenPar-mode loops
+    into _CodegenPar-mode and _CodegenNamedWarps-mode loops
     """
 
     __slots__ = [
@@ -320,7 +320,7 @@ class CollAnalysis(LoopIR_Rewrite):
         if stmts is not None:
             assert len(stmts) == 1
             s = stmts[0]
-        return [s.update(loop_mode=thread_iter.codegen_par)]
+        return [s.update(loop_mode=thread_iter.codegen_loop_mode)]
 
     def map_with_cuda_warps(self, s: LoopIR.stmt, thread_iters: List[ThreadIter]):
         assert not s.orelse
@@ -330,7 +330,10 @@ class CollAnalysis(LoopIR_Rewrite):
         # thread_iters is outer-to-inner: optional named restriction, then numeric offset.
         for thread_iter in reversed(thread_iters):
             s2 = wrap_codegen_par(
-                thread_iter.codegen_par, stmts, s.srcinfo, iter_sym=thread_iter.iter
+                thread_iter.codegen_loop_mode,
+                stmts,
+                s.srcinfo,
+                iter_sym=thread_iter.iter,
             )
             self.thread_iters[s2.iter] = thread_iter
             stmts = [s2]
@@ -477,12 +480,11 @@ class CollAnalysis(LoopIR_Rewrite):
         thread_iter = ThreadIter(
             self._coll_tiling,
             s.loop_mode.format_loop_cond(lo_int, hi_int),
-            None,
             mangle=True,
         )
 
         log_lhs = thread_iter.cname(s.iter)
-        log_rhs = thread_iter.codegen_par.c_index
+        log_rhs = thread_iter.codegen_loop_mode.c_index
         self._debug_log.remark(
             self._proc_name,
             f"thread_pitch={thread_iter.thread_pitch}; {log_lhs} = {log_rhs} @ {s.srcinfo}",
@@ -537,9 +539,9 @@ class CollAnalysis(LoopIR_Rewrite):
                 )
 
             # (1/2) Named restriction: adjust CollTiling for named warps offset.
-            # Lowers to a _CodegenPar with warp_name_filter set; the CUDA backend
-            # filters by warp name instead of testing threadIdx (the deviceMainLoop
-            # already specializes per warp name); camspork gets a ThreadsFor.
+            # Lowers to a _CodegenNamedWarps; the CUDA backend filters by warp
+            # name instead of testing threadIdx (the deviceMainLoop already
+            # specializes per warp name); camspork gets a ThreadsFor.
             coll_tiling = coll_tiling.specialized(
                 Sym(f"CudaWarps_{name}"),
                 cuda_warp,
@@ -547,7 +549,7 @@ class CollAnalysis(LoopIR_Rewrite):
                 (info.offset + info.count),
                 self._coll_env,
             )
-            thread_iters.append(ThreadIter(coll_tiling, None, name, mangle=False))
+            thread_iters.append(ThreadIter(coll_tiling, warp_name=name, mangle=False))
 
         # Nested CudaWarps: interpret lo/hi literally as the higher-level
         # CudaWarps will have already handled the named warp offset adjustment.
@@ -580,8 +582,8 @@ class CollAnalysis(LoopIR_Rewrite):
 
         self._coll_tiling = coll_tiling
         self.remark_coll_tiling_in_body(s, coll_tiling)
-        # (2/2) Numeric offset: no warp name filter.
-        thread_iters.append(ThreadIter(coll_tiling, str(ctx), None, mangle=False))
+        # (2/2) Numeric offset: lowers to _CodegenPar.
+        thread_iters.append(ThreadIter(coll_tiling, str(ctx), mangle=False))
         return thread_iters
 
     def remark_distributed_alloc_state(

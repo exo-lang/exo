@@ -56,7 +56,15 @@ from .cuda_memory import (
 from .lowered_barrier import LoweredBarrierType, LoweredBarrier, AddBarrierCtx
 from .cuda_sync_state import SyncStateBuilder
 from .cuda_warp_config import WarpLayoutInfo
-from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar, cuda_tasks
+from .loop_modes import (
+    CudaTasks,
+    CudaThreads,
+    Seq,
+    seq,
+    _CodegenPar,
+    _CodegenNamedWarps,
+    cuda_tasks,
+)
 from .sync_types import SyncType
 from .with_cuda_warps import CudaWarps
 
@@ -644,8 +652,9 @@ class SubtreeScan(LoopIR_Do):
                     )
             elif isinstance(loop_mode, _CodegenPar):
                 self._coll_tiling = self.thread_iters[s.iter].coll_tiling
-                if (warp_name := loop_mode.warp_name_filter) is not None:
-                    self._current_warp_name = warp_name
+            elif isinstance(loop_mode, _CodegenNamedWarps):
+                self._coll_tiling = self.thread_iters[s.iter].coll_tiling
+                self._current_warp_name = loop_mode.warp_name
             else:
                 # CollAnalysis should have rewritten cuda_threads loops.
                 raise TypeError(
@@ -827,7 +836,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
             return LoopIR.If(cond, body, [], srcinfo)
 
         def wrap_if_threadIdx(lo, hi, body):
-            loop_mode = _CodegenPar("threadIdx.x", None, (lo, hi), None, (), -1, -1, -1)
+            loop_mode = _CodegenPar("threadIdx.x", None, (lo, hi), (), -1, -1, -1)
             return wrap_codegen_par(loop_mode, body, srcinfo)
 
         named_warp_tuples = sorted(scan.named_warps.items())
@@ -887,9 +896,8 @@ class MainLoopRewrite(LoopIR_Rewrite):
         if isinstance(s, LoopIR.For):
             # Remove branches of code corresponding to different warp name than
             # what is currently being compiled.
-            if isinstance(s.loop_mode, _CodegenPar):
-                name = s.loop_mode.warp_name_filter
-                if name is not None and name != self._current_warp_name:
+            if isinstance(s.loop_mode, _CodegenNamedWarps):
+                if s.loop_mode.warp_name != self._current_warp_name:
                     return [LoopIR.Pass(s.srcinfo)]
         elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
             # Remove unused variables to shut the CUDA compiler up.
