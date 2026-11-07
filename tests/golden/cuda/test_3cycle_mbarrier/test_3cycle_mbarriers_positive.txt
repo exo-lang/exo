@@ -587,20 +587,10 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
   for (exo_control_t n = 0; n < 25; n++) {
     ; // NO-OP
     ; // NO-OP
-    // CudaWarps(name='A')
-    if ([[maybe_unused]] int CudaWarps_None_None_A = threadIdx.x; 1) {
-      if (n == 0) {
-        // cuda_threads(0, 2, unit=cuda_thread)
-        if (int exo_1thr_tid = threadIdx.x; exo_1thr_tid < 2) {
-          // Await(CtoA[tid, ((n + exo_syncState.ring_consumption_2_CtoA) % 6)], cuda_in_order, 0)
-          exo_syncState.Await0_CtoA(exo_smem, exo_excutLog, int(exo_1thr_tid), int((n + (exo_syncState.ring_consumption_2_CtoA) - 1)));
-          // Arrive(cuda_in_order, 1) >> AtoB[tid, ((n + 2 + exo_syncState.ring_consumption_0_AtoB) % 6)]
-          // cta_mask: uint16_t(0x1)
-          exo_syncState.Arrive0_AtoB(exo_smem, exo_excutLog, int(exo_1thr_tid), int((n + 2 + (exo_syncState.ring_consumption_0_AtoB) - 2)), 1);
-        }
-      } else {
-        // CudaWarps(0, 1)
-        if (int CudaWarps_0_1_A = threadIdx.x; CudaWarps_0_1_A < 32) {
+    {
+      // CudaWarps(name='A')
+      if ([[maybe_unused]] int CudaWarps_None_None_A = threadIdx.x; 1) {
+        if (n == 0) {
           // cuda_threads(0, 2, unit=cuda_thread)
           if (int exo_1thr_tid = threadIdx.x; exo_1thr_tid < 2) {
             // Await(CtoA[tid, ((n + exo_syncState.ring_consumption_2_CtoA) % 6)], cuda_in_order, 0)
@@ -608,6 +598,18 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
             // Arrive(cuda_in_order, 1) >> AtoB[tid, ((n + 2 + exo_syncState.ring_consumption_0_AtoB) % 6)]
             // cta_mask: uint16_t(0x1)
             exo_syncState.Arrive0_AtoB(exo_smem, exo_excutLog, int(exo_1thr_tid), int((n + 2 + (exo_syncState.ring_consumption_0_AtoB) - 2)), 1);
+          }
+        } else {
+          // CudaWarps(0, 1)
+          if (int CudaWarps_0_1_A = threadIdx.x; CudaWarps_0_1_A < 32) {
+            // cuda_threads(0, 2, unit=cuda_thread)
+            if (int exo_1thr_tid = threadIdx.x; exo_1thr_tid < 2) {
+              // Await(CtoA[tid, ((n + exo_syncState.ring_consumption_2_CtoA) % 6)], cuda_in_order, 0)
+              exo_syncState.Await0_CtoA(exo_smem, exo_excutLog, int(exo_1thr_tid), int((n + (exo_syncState.ring_consumption_2_CtoA) - 1)));
+              // Arrive(cuda_in_order, 1) >> AtoB[tid, ((n + 2 + exo_syncState.ring_consumption_0_AtoB) % 6)]
+              // cta_mask: uint16_t(0x1)
+              exo_syncState.Arrive0_AtoB(exo_smem, exo_excutLog, int(exo_1thr_tid), int((n + 2 + (exo_syncState.ring_consumption_0_AtoB) - 2)), 1);
+            }
           }
         }
       }
@@ -636,15 +638,17 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
   // BtoC: barrier[2, 6] @ CudaMbarrierPreArrive(3, )
   ; // NO-OP
   for (exo_control_t n = 0; n < 25; n++) {
-    // CudaWarps(name='B')
-    if ([[maybe_unused]] int CudaWarps_None_None_B = (threadIdx.x - 64); 1) {
-      // cuda_threads(0, 2, unit=cuda_warp)
-      if ([[maybe_unused]] int exo_32thr_w = ((threadIdx.x - 64) / 32); 1) {
-        // Await(AtoB[w, ((n + exo_syncState.ring_consumption_0_AtoB) % 6)], cuda_in_order, 0)
-        exo_syncState.Await0_AtoB(exo_smem, exo_excutLog, int(exo_32thr_w), int((n + (exo_syncState.ring_consumption_0_AtoB) - 2)));
-        // Arrive(cuda_in_order, 1) >> BtoC[w, ((n + 3 + exo_syncState.ring_consumption_1_BtoC) % 6)]
-        // cta_mask: uint16_t(0x1)
-        exo_syncState.Arrive0_BtoC(exo_smem, exo_excutLog, int(exo_32thr_w), int((n + 3 + (exo_syncState.ring_consumption_1_BtoC) - 3)), 1);
+    {
+      // CudaWarps(name='B')
+      if ([[maybe_unused]] int CudaWarps_None_None_B = (threadIdx.x - 64); 1) {
+        // cuda_threads(0, 2, unit=cuda_warp)
+        if ([[maybe_unused]] int exo_32thr_w = ((threadIdx.x - 64) / 32); 1) {
+          // Await(AtoB[w, ((n + exo_syncState.ring_consumption_0_AtoB) % 6)], cuda_in_order, 0)
+          exo_syncState.Await0_AtoB(exo_smem, exo_excutLog, int(exo_32thr_w), int((n + (exo_syncState.ring_consumption_0_AtoB) - 2)));
+          // Arrive(cuda_in_order, 1) >> BtoC[w, ((n + 3 + exo_syncState.ring_consumption_1_BtoC) % 6)]
+          // cta_mask: uint16_t(0x1)
+          exo_syncState.Arrive0_BtoC(exo_smem, exo_excutLog, int(exo_32thr_w), int((n + 3 + (exo_syncState.ring_consumption_1_BtoC) - 3)), 1);
+        }
       }
     }
     ; // NO-OP
@@ -674,23 +678,25 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
   // CtoA: barrier[2, 6] @ CudaMbarrierPreArrive(1, )
   for (exo_control_t n = 0; n < 25; n++) {
     ; // NO-OP
-    // CudaWarps(name='C')
-    if ([[maybe_unused]] int CudaWarps_None_None_C = (threadIdx.x - 128); 1) {
-      // cuda_threads(0, 2, unit=cuda_warpgroup)
-      if ([[maybe_unused]] int exo_128thr_wg = ((threadIdx.x - 128) / 128); 1) {
-        // CudaWarps(2, 4)
-        if (int CudaWarps_2_4_C = (threadIdx.x % 128); CudaWarps_2_4_C >= 64) {
-          // Await(BtoC[wg, ((n + exo_syncState.ring_consumption_1_BtoC) % 6)], cuda_in_order, 0)
-          exo_syncState.Await0_BtoC(exo_smem, exo_excutLog, int(exo_128thr_wg), int((n + (exo_syncState.ring_consumption_1_BtoC) - 3)));
+    {
+      // CudaWarps(name='C')
+      if ([[maybe_unused]] int CudaWarps_None_None_C = (threadIdx.x - 128); 1) {
+        // cuda_threads(0, 2, unit=cuda_warpgroup)
+        if ([[maybe_unused]] int exo_128thr_wg = ((threadIdx.x - 128) / 128); 1) {
+          // CudaWarps(2, 4)
+          if (int CudaWarps_2_4_C = (threadIdx.x % 128); CudaWarps_2_4_C >= 64) {
+            // Await(BtoC[wg, ((n + exo_syncState.ring_consumption_1_BtoC) % 6)], cuda_in_order, 0)
+            exo_syncState.Await0_BtoC(exo_smem, exo_excutLog, int(exo_128thr_wg), int((n + (exo_syncState.ring_consumption_1_BtoC) - 3)));
+          }
         }
-      }
-      // cuda_threads(0, 2, unit=cuda_warpgroup)
-      if ([[maybe_unused]] int exo_128thr_wg = ((threadIdx.x - 128) / 128); 1) {
-        // CudaWarps(2, 4)
-        if (int CudaWarps_2_4_C = (threadIdx.x % 128); CudaWarps_2_4_C >= 64) {
-          // Arrive(cuda_in_order, 1) >> CtoA[wg, ((n + 1 + exo_syncState.ring_consumption_2_CtoA) % 6)]
-          // cta_mask: uint16_t(0x1)
-          exo_syncState.Arrive0_CtoA(exo_smem, exo_excutLog, int(exo_128thr_wg), int((n + 1 + (exo_syncState.ring_consumption_2_CtoA) - 1)), 1);
+        // cuda_threads(0, 2, unit=cuda_warpgroup)
+        if ([[maybe_unused]] int exo_128thr_wg = ((threadIdx.x - 128) / 128); 1) {
+          // CudaWarps(2, 4)
+          if (int CudaWarps_2_4_C = (threadIdx.x % 128); CudaWarps_2_4_C >= 64) {
+            // Arrive(cuda_in_order, 1) >> CtoA[wg, ((n + 1 + exo_syncState.ring_consumption_2_CtoA) % 6)]
+            // cta_mask: uint16_t(0x1)
+            exo_syncState.Arrive0_CtoA(exo_smem, exo_excutLog, int(exo_128thr_wg), int((n + 1 + (exo_syncState.ring_consumption_2_CtoA) - 1)), 1);
+          }
         }
       }
     }

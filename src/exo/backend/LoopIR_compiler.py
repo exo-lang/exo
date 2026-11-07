@@ -1600,6 +1600,14 @@ class Compiler:
                 if unroll is not None:
                     unroll_str = f" {unroll}" if unroll > 0 else ""
                     self.add_line(f"#pragma unroll{unroll_str}")
+            elif (
+                isinstance(loop_mode, _CodegenPar)
+                and loop_mode.warp_name_filter is not None
+            ):
+                # Named-warps restriction; MainLoopRewrite already removed
+                # these for non-matching warp names.
+                self.add_line("{")
+                emit_loop = False
             elif isinstance(loop_mode, _CodegenPar):
                 # This is not valid C; if we add non-cuda backends we may have
                 # to add config options to _CodegenPar to tweak lowering syntax.

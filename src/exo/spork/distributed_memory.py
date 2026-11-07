@@ -52,23 +52,10 @@ class ThreadIter:
         comment: Optional[str] = None,
         warp_name_filter: Optional[str] = None,
         mangle: bool = True,
-        # Messy special-case args for handling 2-step CudaWarps compile.
-        prior_am_dim_idx=None,
-        prior_am_offset=0,
-        prior_am_box=None,
     ):
         codegen: CollCodegen = coll_tiling.get_codegen()
         dim_idx = codegen.dim_idx
-        if dim_idx != prior_am_dim_idx:
-            # CudaWarps should apply to the same domain always.
-            assert dim_idx is None or prior_am_dim_idx is None
-        if dim_idx is not None:
-            am_box = codegen.box
-        elif prior_am_dim_idx is not None:
-            assert prior_am_box > 0
-            am_box = prior_am_box
-        else:
-            am_box = -1
+        am_box = -1 if dim_idx is None else codegen.box
 
         self.codegen_par = _CodegenPar(
             codegen.codegen_expr.c_codegen(),
@@ -76,8 +63,8 @@ class ThreadIter:
             (codegen.codegen_static_lo, codegen.codegen_static_hi),
             warp_name_filter,
             coll_tiling.get_domain(),
-            prior_am_dim_idx if prior_am_dim_idx is not None else dim_idx,
-            prior_am_offset + codegen.offset,
+            dim_idx,
+            codegen.offset,
             am_box,
         )
 

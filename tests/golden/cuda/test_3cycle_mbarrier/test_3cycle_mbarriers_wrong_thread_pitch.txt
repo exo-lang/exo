@@ -174,7 +174,13 @@ def proc_3cycle_mbarriers():
                 # CudaWarps_None_None_B = 0
                 #
                 # tests/cuda/test_3cycle_mbarrier.py:75:20:(s70):
+                # CudaWarps_B = 0
+                #
+                # tests/cuda/test_3cycle_mbarrier.py:75:20:(s70):
                 # CudaWarps_None_None_B = 0
+                #
+                # tests/cuda/test_3cycle_mbarrier.py:75:20:(s70):
+                # CudaWarps_B = 0
                 with CudaWarps(name='B'):
                     # Domain (ω.D) = [ 384]
                     #    Box (ω.B) = [  64]
