@@ -1034,7 +1034,7 @@ def test_mbarriers_wrong_tma(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m1n4d2d2_wrong_tma)
     assert "tma_to_smem_async" in str(exc.value)
-    assert "use cuda_mbarrier_only" in str(exc.value)
+    assert "use cuda_async_proxy_retired" in str(exc.value)
 
 
 def test_mbarriers_Sm80_cp_async_1_CTA(compiler):

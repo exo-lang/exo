@@ -366,7 +366,7 @@ class SyncStateBuilder:
             elif timelines.tma_to_smem_async.implements_first(sync_tl):
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
-                    f"not supported: use cuda_mbarrier_only, and add trailing barriers to TMA instrs")
+                    f"not supported: use cuda_async_proxy_retired, and add trailing barriers to TMA instrs")
             else:
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
