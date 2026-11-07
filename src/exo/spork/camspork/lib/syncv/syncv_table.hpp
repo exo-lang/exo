@@ -69,6 +69,21 @@ struct VisRecordDebugData
     std::vector<PendingAwait> pending_await_list;
     barrier_id free_on_arrive;
     qual_bits_t qual_tl_mask;
+    uint64_t flags;  // vis_record_before_alloc_flag, vis_record_freed_flag (u64: keeps sizeof static_assert padding-free)
+};
+
+struct AssignmentRecordDebugData
+{
+    // VisRecord IDs (for debug_get_vis_record_data); may contain duplicates.
+    std::vector<uint32_t> mutate_vis_record_ids;
+    std::vector<uint32_t> read_vis_record_ids;
+};
+
+struct BarrierDebugData
+{
+    int32_t arrive_count;
+    int32_t await_count;
+    uint32_t flags;  // one_shot_arrive_flag, one_shot_await_flag
 };
 
 // Window into a multidimensional array of assignment records.
@@ -217,6 +232,9 @@ void end_no_checking(SyncvTable* table);
 
 // *** Debug Inspection Interface ***
 void debug_get_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out);
+// id = 0 (no AssignmentRecord) gives empty lists.
+void debug_get_assignment_record_data(const SyncvTable* table, assignment_record_id id, AssignmentRecordDebugData* out);
+void debug_get_barrier_data(const SyncvTable* table, barrier_id id, BarrierDebugData* out);
 void debug_validate_state(SyncvTable* table, size_t input_count, const SyncvDebugValidateInput* p_inputs);
 
 }

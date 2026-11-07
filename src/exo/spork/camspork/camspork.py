@@ -416,6 +416,14 @@ _set_history_enable = lib.camspork_set_history_enable
 _set_history_enable.restype = c_int
 _set_history_enable.argtypes = (c_void_p, c_uint32)
 
+_set_trace_filename = lib.camspork_set_trace_filename
+_set_trace_filename.restype = c_int
+_set_trace_filename.argtypes = (c_void_p, c_char_p)
+
+_add_trace_probe = lib.camspork_add_trace_probe
+_add_trace_probe.restype = c_int
+_add_trace_probe.argtypes = (c_void_p, Varname, c_uint32, POINTER(extent_t))
+
 _set_qual_tl_name = lib.camspork_set_qual_tl_name
 _set_qual_tl_name.restype = c_int
 _set_qual_tl_name.argtypes = (c_void_p, c_uint32, c_char_p)
@@ -1151,6 +1159,15 @@ class ProgramEnv:
 
     def set_history_enable(self, flag):
         check_return(_set_history_enable(self._env, bool(flag)))
+
+    def set_trace(self, filename, probes):
+        """Sync env trace for testing: probes is a list of (var, idx tuple)."""
+        check_return(_set_trace_filename(self._env, bytes(filename, "utf-8")))
+        for var, idx in probes:
+            c_idx = (extent_t * len(idx))(*idx)
+            check_return(
+                _add_trace_probe(self._env, self.get_varname(var), len(idx), c_idx)
+            )
 
     def set_qual_tl_name(self, qual_tl: int, name: str):
         check_return(_set_qual_tl_name(self._env, qual_tl, bytes(name, "utf-8")))

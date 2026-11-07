@@ -888,7 +888,13 @@ def make_buffer_sizes(
     return result
 
 
-def top_level_check(backend, args_dict: Dict[str, int], *, no_smem_free_check=False):
+def top_level_check(
+    backend,
+    args_dict: Dict[str, int],
+    *,
+    no_smem_free_check=False,
+    camspork_trace=None,
+):
     backend: BackendChecks
     p = backend.analyzed
     debug_log = backend.debug_log
@@ -962,6 +968,14 @@ def top_level_check(backend, args_dict: Dict[str, int], *, no_smem_free_check=Fa
         for bit_index, qual_tl in enumerate(Qual_tl.get_all()):
             env.set_qual_tl_name(bit_index, str(qual_tl))
         env.set_debug_validation_enable(debug_always)
+        if camspork_trace is not None and single_sync_var is None:
+            # Testing: probes name variables by str(Sym); must be unambiguous.
+            filename, probes = camspork_trace
+            syms = {}
+            for sym in backend.mem_env:
+                assert str(sym) not in syms, f"ambiguous trace probe name {sym}"
+                syms[str(sym)] = sym
+            env.set_trace(filename, [(syms[nm], tuple(idx)) for nm, idx in probes])
         return env
 
     # Run validation up to 2 times.

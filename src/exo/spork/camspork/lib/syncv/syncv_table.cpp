@@ -2589,6 +2589,29 @@ struct SyncvTable
 
 
 
+    void debug_get_assignment_record_data(assignment_record_id id, AssignmentRecordDebugData* out) const
+    {
+        out->mutate_vis_record_ids.clear();
+        out->read_vis_record_ids.clear();
+        if (id) {
+            const AssignmentRecord& record = get(nodepool::id<AssignmentRecord>{id.node_id});
+            for (auto node_id = record.mutate_vis_records_head_id; node_id; ) {
+                const DefaultAssignmentRecordVisNode& node = get(node_id);
+                out->mutate_vis_record_ids.push_back(node.vis_record_id.id_bits);
+                node_id = node.camspork_next_id;
+            }
+            debug_get_read_vis_record_ids(record, &out->read_vis_record_ids);
+        }
+    }
+
+    void debug_get_barrier_data(barrier_id id, BarrierDebugData* out) const
+    {
+        const HamsterBarrierState& state = get(nodepool::id<HamsterBarrierState>{id.data});
+        out->arrive_count = state.arrive_count;
+        out->await_count = state.await_count;
+        out->flags = state.flags;
+    }
+
     // Get IDs of read visibility records of assignment record.
     void debug_get_read_vis_record_ids(const AssignmentRecord& record, std::vector<uint32_t>* out) const
     {
@@ -2622,12 +2645,14 @@ struct SyncvTable
 
         out->free_on_arrive.data = record.free_on_arrive.id_bits;
         out->qual_tl_mask = record.qual_tl_mask;
+        out->flags = record.flags;
 
         static_assert(sizeof(*out) ==
             sizeof(out->visibility_set)
             + sizeof(out->pending_await_list)
             + sizeof(out->free_on_arrive)
-            + sizeof(out->qual_tl_mask),
+            + sizeof(out->qual_tl_mask)
+            + sizeof(out->flags),
             "Update me to write out new VisRecord state"
         );
     }
@@ -3597,6 +3622,16 @@ void end_no_checking(SyncvTable* table)
 void debug_get_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out)
 {
     table->debug_get_vis_record_data(nodepool::id<VisRecordListNode<VisRecordKind::Default>>{id}, out);
+}
+
+void debug_get_assignment_record_data(const SyncvTable* table, assignment_record_id id, AssignmentRecordDebugData* out)
+{
+    table->debug_get_assignment_record_data(id, out);
+}
+
+void debug_get_barrier_data(const SyncvTable* table, barrier_id id, BarrierDebugData* out)
+{
+    table->debug_get_barrier_data(id, out);
 }
 
 void debug_validate_state(SyncvTable* table, size_t input_count, const SyncvDebugValidateInput* p_inputs)

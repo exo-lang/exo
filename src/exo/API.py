@@ -468,12 +468,13 @@ class Procedure(ProcedureBase, ProcCallGen):
     # ------------------------------- #
     #     sync check
     # ------------------------------- #
-    def sync_check(self, **kwargs):
+    def sync_check(self, *, _camspork_trace=None, **kwargs):
         """Perform sync check for a given concrete problem size.
 
         All size/index argument values must be given as int keyword arguments.
         This proc will be checked for the problem size given.
 
+        _camspork_trace: testing only; (filename, [(var_name_str, idx), ...]).
         """
 
         # Enforce for Exo pytest only that sync_check cannot be used without
@@ -493,7 +494,10 @@ class Procedure(ProcedureBase, ProcCallGen):
             backend = LoopIR_compiler.run_backend_checks(self._loopir_proc, debug_log)
             # Should we check assertions?
             sync_check.top_level_check(
-                backend, kwargs, no_smem_free_check=self._hack_no_smem_free_check
+                backend,
+                kwargs,
+                no_smem_free_check=self._hack_no_smem_free_check,
+                camspork_trace=_camspork_trace,
             )
         except Exception as e:
             debug_log.enable_notify_user()
