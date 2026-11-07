@@ -649,8 +649,10 @@ tcgen05_st = Sync_tl("tcgen05_st", [tcgen05_st_qual], for_instr_tl=tcgen05_st_in
 """mbarrier actions only
 
 Typical usage: Arrive(cuda_mbarrier_only) for the "data ready" Arrive
-after TMA loads with trailing barriers; the loaded data is synchronized
-by the pending awaits, not by being witnessed by the Arrive."""
+after TMA GMEM-to-SMEM loads with trailing barriers; the loaded data is synchronized
+by the pending awaits, not by being witnessed by the Arrive.
+For managed ring buffers, you may need to use cuda_async_proxy_retired instead.
+"""
 cuda_mbarrier_only = Sync_tl(
     "cuda_mbarrier_only",
     [cuda_mbarrier_qual],
@@ -659,8 +661,10 @@ cuda_mbarrier_only = Sync_tl(
 """mbarrier actions + memory accesses visible to the async proxy, only
 
 Typical usage: first and second sync-tl for the "buffer free"
-Arrive/Await before TMA overwrites SMEM previously read by
-the async proxy (e.g. by wgmma)."""
+Arrive/Await before TMA overwrites SMEM previously read by the async
+proxy (e.g. by wgmma), and can also reasonably be the first sync-tl of
+the "data read" Arrive after TMA GMEM-to-SMEM load.
+"""
 cuda_async_proxy_retired = Sync_tl(
     "cuda_async_proxy_retired",
     [cuda_mbarrier_qual, cuda_async_proxy_retired_qual],

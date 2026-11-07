@@ -454,7 +454,7 @@ def handwrite_row_col_coop_main_loop(config: GemmConfig):
                 # Multicast to any CTA with the same cta_m OR the same cta_n.
                 for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                     for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                        Arrive(cuda_mbarrier_only) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]
+                        Arrive(cuda_async_proxy_retired) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]
             with CudaWarps(name="consumer"):
                 for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                     for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
@@ -617,7 +617,7 @@ def handwrite_row_row_coop_main_loop(config: GemmConfig):
                 # Multicast to any CTA with the same cta_m OR the same cta_n.
                 for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                     for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                        Arrive(cuda_mbarrier_only) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]
+                        Arrive(cuda_async_proxy_retired) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]
             with CudaWarps(name="consumer"):
                 for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                     for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
@@ -801,7 +801,7 @@ def handwrite_row_col_ping_pong_main_loop(config: GemmConfig):
                     # Multicast to any CTA with the same cta_m OR the same cta_n.
                     for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                         for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                            Arrive(cuda_mbarrier_only) >> raw[cta_m, :, ping, iter_k] >> raw[:, cta_n, ping, iter_k]
+                            Arrive(cuda_async_proxy_retired) >> raw[cta_m, :, ping, iter_k] >> raw[:, cta_n, ping, iter_k]
             with CudaWarps(name="consumer"):
                 for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                     for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
@@ -1707,7 +1707,7 @@ def schedule_gemm(config: GemmConfig, cases=None):
     # because the (inner) CTA loop for the SMEM load is part of the TMA instr.
     gemm = insert_await(gemm, A_smem_loop.before(), "war[cta_m, cta_n, iter_k]", cuda_async_proxy_retired, 0)
     gemm = fission(gemm, A_smem_loop.before(), n_lifts=1)
-    gemm = insert_arrive(gemm, B_smem_loop.after(), cuda_mbarrier_only, ("raw[cta_m, :, iter_k]", "raw[:, cta_n, iter_k]"))
+    gemm = insert_arrive(gemm, B_smem_loop.after(), cuda_async_proxy_retired, ("raw[cta_m, :, iter_k]", "raw[:, cta_n, iter_k]"))
     gemm = fission(gemm, B_smem_loop.after(), n_lifts=1)
 
     # Substitute multicast TMA.

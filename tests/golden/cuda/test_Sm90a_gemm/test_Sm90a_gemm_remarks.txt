@@ -133,9 +133,11 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, K_cluster: size,
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1,  32]
                                         #   pow2 align = 32 @ src/exo/platforms/Sm90/tk_gemm_util.py:457:24:(s180)
-                                        Arrive(cuda_mbarrier_only, 1) >> raw[
-                                            cta_m, 0:1,
-                                            iter_k] >> raw[0:2, cta_n, iter_k]
+                                        Arrive(cuda_async_proxy_retired,
+                                               1) >> raw[cta_m, 0:1,
+                                                         iter_k] >> raw[0:2,
+                                                                        cta_n,
+                                                                        iter_k]
                             with CudaWarps(name='consumer'):
                                 # Domain (ω.D) = [   2, 384]
                                 #    Box (ω.B) = [   2, 256]
@@ -267,9 +269,11 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, K_cluster: size,
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1,  32]
                                         #   pow2 align = 32 @ src/exo/platforms/Sm90/tk_gemm_util.py:457:24:(s390)
-                                        Arrive(cuda_mbarrier_only, 1) >> raw[
-                                            cta_m, 0:1,
-                                            iter_k] >> raw[0:2, cta_n, iter_k]
+                                        Arrive(cuda_async_proxy_retired,
+                                               1) >> raw[cta_m, 0:1,
+                                                         iter_k] >> raw[0:2,
+                                                                        cta_n,
+                                                                        iter_k]
                             with CudaWarps(name='consumer'):
                                 # Domain (ω.D) = [   2, 384]
                                 #    Box (ω.B) = [   2, 256]
