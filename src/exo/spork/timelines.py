@@ -528,14 +528,6 @@ _cuda_device_quals = (
     + _tcgen05_async_quals
 )
 
-_cuda_stream_quals = [
-    cpu_cuda_stream_qual,
-    cuda_in_order_ram_qual,
-    Sm80_cp_async_qual,
-    tma_to_smem_async_qual,
-    tma_to_gmem_async_qual,
-]
-
 
 class Sync_tl(object):
     __slots__ = [
