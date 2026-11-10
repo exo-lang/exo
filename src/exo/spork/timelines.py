@@ -518,15 +518,19 @@ _tcgen05_commit_quals = [
     tcgen05_shift_qual,
 ]
 
-_cuda_device_quals = (
-    _cuda_in_order_quals
-    + [cpu_cuda_stream_qual, cuda_async_proxy_retired_qual]
-    + _Sm80_cp_async_quals
-    + _tma_to_smem_async_quals
-    + _tma_to_gmem_async_quals
-    + _wgmma_async_quals
-    + _tcgen05_async_quals
-)
+# CUDA Stream: we model this as synchronizing all CUDA accesses to data RAM,
+# but we exclude atomics as exclusive to atomic accesses' TrPostAccess/TrPreAccess.
+# This is fine: such accesses also include a CUDA non-atomic qtl.
+_cuda_stream_quals = [
+    q
+    for q in Qual_tl.get_all()
+    if q is not cpu_in_order_qual
+    and q.mask_class() is QualMaskClass.data_ram
+    and not q.is_atomic()
+]
+assert len(_cuda_stream_quals) >= 6
+assert cpu_cuda_stream_qual in _cuda_stream_quals
+assert sum(str(q).startswith("cpu_") for q in _cuda_stream_quals) == 1
 
 
 class Sync_tl(object):
@@ -632,7 +636,7 @@ cpu_in_order = Sync_tl(
 )
 
 """First sync-tl of a cudaStreamSynchronize"""
-cuda_stream_sync = Sync_tl("cuda_stream_sync", _cuda_device_quals)
+cuda_stream_sync = Sync_tl("cuda_stream_sync", _cuda_stream_quals)
 
 """Classic CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction."""

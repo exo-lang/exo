@@ -5,38 +5,22 @@ def proc_3cycle_mbarriers():
     #   First sync-tl (set of qual-tl):
     #                cpu_in_order_qual
     #                cpu_cuda_stream_qual
-    #                cuda_in_order_rmem_qual
     #                cuda_in_order_ram_qual
-    #                cuda_mbarrier_qual
     #                Sm80_cp_async_qual
     #                tma_to_smem_async_qual
     #                tma_to_gmem_async_qual
-    #                wgmma_async_rmem_a_qual
-    #                wgmma_async_rmem_d_qual
     #                wgmma_async_smem_qual
     #                cuda_async_proxy_retired_qual
-    #                tcgen05_mma_tmem_qual
-    #                tcgen05_cp_tmem_qual
-    #                tcgen05_shift_qual
-    #                tcgen05_ld_qual
-    #                tcgen05_st_qual
+    #                tcgen05_smem_qual
     #   Second sync-tl (set of qual-tl):
     #                cpu_cuda_stream_qual
-    #                cuda_in_order_rmem_qual
     #                cuda_in_order_ram_qual
-    #                cuda_mbarrier_qual
     #                Sm80_cp_async_qual
     #                tma_to_smem_async_qual
     #                tma_to_gmem_async_qual
-    #                wgmma_async_rmem_a_qual
-    #                wgmma_async_rmem_d_qual
     #                wgmma_async_smem_qual
     #                cuda_async_proxy_retired_qual
-    #                tcgen05_mma_tmem_qual
-    #                tcgen05_cp_tmem_qual
-    #                tcgen05_shift_qual
-    #                tcgen05_ld_qual
-    #                tcgen05_st_qual
+    #                tcgen05_smem_qual
     with CudaDeviceFunction(warp_config=[
             CudaWarpConfig(
                 name='A', count=2, setmaxnreg_dec=None, setmaxnreg_inc=None),
