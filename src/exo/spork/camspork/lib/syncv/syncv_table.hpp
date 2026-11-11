@@ -199,7 +199,6 @@ void set_managed_ring_buffer_barriers(
         AssignmentRecordWindow,
         uint32_t alloc_on_await_count,
         const barrier_id* alloc_on_await_barriers,
-        barrier_id free_on_arrive,
         decltype(nullptr) = nullptr);
 void set_managed_ring_buffer_barriers(
         SyncvTable*,
@@ -207,10 +206,7 @@ void set_managed_ring_buffer_barriers(
         AssignmentRecordWindow,
         uint32_t alloc_on_await_count,
         const barrier_id* alloc_on_await_barriers,
-        barrier_id free_on_arrive,
         const SyncvLogRequest&);
-void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, decltype(nullptr) = nullptr);
-void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, const SyncvLogRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
 // Allocate N barriers (a C-order array) with the given flags and expected arrive count.

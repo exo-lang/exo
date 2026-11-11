@@ -299,12 +299,6 @@ class ProgramPrinter
         *this << "))\n";
     }
 
-    void operator() (const SyncEnvFreeManagedRingBuffer* node)
-    {
-        print_tabs();
-        *this << "b.SyncEnvFreeManagedRingBuffer(" << node->name << ");\n";
-    }
-
     void operator() (const StmtBody* node)
     {
         for (uint32_t i = 0; i < node->camspork_vla_size; ++i) {

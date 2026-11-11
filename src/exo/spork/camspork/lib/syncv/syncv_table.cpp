@@ -3397,7 +3397,6 @@ void set_managed_ring_buffer_barriers(
         AssignmentRecordWindow input,
         uint32_t alloc_on_await_count,
         const barrier_id* alloc_on_await_barriers,
-        barrier_id,  // free_on_arrive: ignored, to be removed
         decltype(nullptr))
 {
     INTERFACE_PROLOGUE(table)
@@ -3412,22 +3411,12 @@ void set_managed_ring_buffer_barriers(
         AssignmentRecordWindow input,
         uint32_t alloc_on_await_count,
         const barrier_id* alloc_on_await_barriers,
-        barrier_id,  // free_on_arrive: ignored, to be removed
         const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
     table->set_managed_ring_buffer_barriers(qual_tl_mask, input, alloc_on_await_count, alloc_on_await_barriers,
             SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
-}
-
-// No-op: the free_on_arrive mechanism was removed; to be removed.
-void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, decltype(nullptr))
-{
-}
-
-void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, const SyncvLogRequest&)
-{
 }
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array)

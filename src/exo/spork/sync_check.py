@@ -480,7 +480,11 @@ class CamsporkDo(LoopIR_Do):
                         srcinfo=s.srcinfo,
                     )
                 else:
-                    b.SyncEnvFreeManagedRingBuffer(b[s.name], srcinfo=s.srcinfo)
+                    # SyncEnvFreeManagedRingBuffer (free_on_arrive) was removed.
+                    raise NotImplementedError(
+                        f"{s.srcinfo}: TODO sync-check free of managed ring buffer {s.name} "
+                        f"(replace SyncEnvFreeManagedRingBuffer with SmemAppendix pending await checks)"
+                    )
 
             # Must be after SyncEnvFreeShards,
             # since this deletes the SyncEnv data for the variable.

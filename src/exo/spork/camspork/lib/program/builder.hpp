@@ -160,7 +160,6 @@ class ProgramBuilder
         qual_bits_t qual_tl_mask, Varname guard, Varname buffer,
         uint32_t managed_ring_buffer_dim_idx, uint32_t buffer_depth,
         uint32_t num_idx, const ArriveIdx* idx);
-    StmtRef add_SyncEnvFreeManagedRingBuffer(Varname name);
 
     // ******************************************************************************************
     // Add statements with a body to the program.
@@ -269,8 +268,6 @@ CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvManageRingBuffer(camspor
     camspork::qual_bits_t qual_tl_mask, camspork_RawVarname guard, camspork_RawVarname buffer,
     uint32_t managed_ring_buffer_idx, uint32_t buffer_depth,
     uint32_t num_idx, const camspork::ArriveIdx* idx);
-CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvFreeManagedRingBuffer(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name);
 
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_push_If(camspork::ProgramBuilder* p_builder,
     camspork::ExprRef cond);
