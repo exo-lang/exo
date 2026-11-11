@@ -2,7 +2,7 @@
 # exocc and the Exo pytest tests should handle this early during init.
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Optional, Type, List, Set, Tuple
+from typing import Callable, Dict, Optional, Type, List, Set, Tuple, Union
 from warnings import warn
 
 from ..backend.LoopIR_compiler import run_backend_checks, BackendChecks
@@ -443,71 +443,8 @@ class CamsporkDo(LoopIR_Do):
                 b.ValueEnvAlloc(am_array, srcinfo=s.srcinfo)
 
             # Set up managed ring buffer, if applicable.
-            if ring_dim_idx is not None:
-                guarded_by = s.type.get_ring_guarded_by()
-                if want_barrier:
-                    if guarded_by is not None:
-                        raise ValueError(
-                            f"{s.srcinfo}: shouldn't have .ring_guarded by for barrier {s}"
-                        )
-                    guarded_by = s.name
-                    guard_typ = s.type
-                    barrier_multicasts = ()
-                else:
-                    if guarded_by is None:
-                        raise ValueError(
-                            f"{s.srcinfo}: managed ring buffer missing .ring_guarded_by {s}"
-                        )
-                    guarded_by = guarded_by.name
-                    guard_typ = self._envtyp.get(guarded_by)
-                    barrier_multicasts = self._coll_analysis.distributed_alloc_states[
-                        guarded_by
-                    ].barrier_multicasts
-                # fmt: off
-                assert isinstance(guard_typ, LoopIR.Barrier), s.srcinfo
-                buffer_shape = s.type.shape()
-                buffer_num_dims = len(buffer_shape)
-                guard_shape = guard_typ.shape()
-                guard_num_dims = len(guard_shape)
-                guard_ring_dim_idx, _ = guard_typ.get_managed_ring_buffer_dimension_depth()
-                # fmt: on
-                if buffer_num_dims < guard_num_dims:
-                    raise ValueError(
-                        f"{s.srcinfo}: {guarded_by}: {guard_typ} has too many dimensions to match {s}"
-                    )
-                if guard_ring_dim_idx != ring_dim_idx:
-                    raise ValueError(
-                        f"{s.srcinfo}: {guarded_by}: {guard_typ} has incorrect managed ring buffer dimension index to match {s}"
-                    )
-                tmp_vars = tuple(
-                    b.add_variable(f"_ring{i}_{s.name}") for i in range(guard_num_dims)
-                )
-                loop_nest = [
-                    b.SeqFor(
-                        tmp_vars[i],
-                        0,
-                        self.comp_e(coord, True, instr_tl),
-                        srcinfo=s.srcinfo,
-                    )
-                    for i, coord in enumerate(buffer_shape[:guard_num_dims])
-                ]
-                for for_node in loop_nest:
-                    for_node.begin()
-                assert all(
-                    all(isinstance(f, bool) for f in flags)
-                    for flags in barrier_multicasts
-                )
-                b.SyncEnvManageRingBuffer(
-                    s.mem.make_qual_tl_mask(),
-                    b.get_varname(guarded_by)[tmp_vars],
-                    b.get_varname(s.name),
-                    ring_dim_idx,
-                    ring_depth,
-                    barrier_multicasts,
-                    srcinfo=s.srcinfo,
-                )
-                for for_node in reversed(loop_nest):
-                    for_node.end()
+            if want_sync and ring_dim_idx is not None:
+                self.manage_ring_buffer(s)
 
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True
@@ -646,6 +583,75 @@ class CamsporkDo(LoopIR_Do):
                 )
         else:
             super().do_s(s)
+
+    def manage_ring_buffer(self, s: Union[LoopIR.Alloc, LoopIR.Free]):
+        b = self._builder
+        ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
+        assert isinstance(ring_dim_idx, int)
+        guarded_by = s.type.get_ring_guarded_by()
+        want_barrier = issubclass(s.mem, BarrierMechanism)
+        if want_barrier:
+            if guarded_by is not None:
+                raise ValueError(
+                    f"{s.srcinfo}: shouldn't have .ring_guarded by for barrier {s}"
+                )
+            guarded_by = s.name
+            guard_typ = s.type
+            barrier_multicasts = ()
+        else:
+            if guarded_by is None:
+                raise ValueError(
+                    f"{s.srcinfo}: managed ring buffer missing .ring_guarded_by {s}"
+                )
+            guarded_by = guarded_by.name
+            guard_typ = self._envtyp.get(guarded_by)
+            barrier_multicasts = self._coll_analysis.distributed_alloc_states[
+                guarded_by
+            ].barrier_multicasts
+        # fmt: off
+        assert isinstance(guard_typ, LoopIR.Barrier), s.srcinfo
+        buffer_shape = s.type.shape()
+        buffer_num_dims = len(buffer_shape)
+        guard_shape = guard_typ.shape()
+        guard_num_dims = len(guard_shape)
+        guard_ring_dim_idx, _ = guard_typ.get_managed_ring_buffer_dimension_depth()
+        # fmt: on
+        if buffer_num_dims < guard_num_dims:
+            raise ValueError(
+                f"{s.srcinfo}: {guarded_by}: {guard_typ} has too many dimensions to match {s}"
+            )
+        if guard_ring_dim_idx != ring_dim_idx:
+            raise ValueError(
+                f"{s.srcinfo}: {guarded_by}: {guard_typ} has incorrect managed ring buffer dimension index to match {s}"
+            )
+        tmp_vars = tuple(
+            b.add_variable(f"_ring{i}_{s.name}") for i in range(guard_num_dims)
+        )
+        loop_nest = [
+            b.SeqFor(
+                tmp_vars[i],
+                0,
+                self.comp_e(coord, True, self._default_instr_tl),
+                srcinfo=s.srcinfo,
+            )
+            for i, coord in enumerate(buffer_shape[:guard_num_dims])
+        ]
+        for for_node in loop_nest:
+            for_node.begin()
+        assert all(
+            all(isinstance(f, bool) for f in flags) for flags in barrier_multicasts
+        )
+        b.SyncEnvManageRingBuffer(
+            s.mem.make_qual_tl_mask(),
+            b.get_varname(guarded_by)[tmp_vars],
+            b.get_varname(s.name),
+            ring_dim_idx,
+            ring_depth,
+            barrier_multicasts,
+            srcinfo=s.srcinfo,
+        )
+        for for_node in reversed(loop_nest):
+            for_node.end()
 
     def comp_trailing_barrier_expr(self, s: LoopIR.Call, instr_tl: Instr_tl):
         b = self._builder
