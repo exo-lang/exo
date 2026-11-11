@@ -319,11 +319,12 @@ class Compiler:
         self._old_debug_path = get_global_debug_log_path()
         set_global_debug_log_path(self.workdir)
 
-        # Initialize JIT directory for camspork
+        # Initialize JIT directory for camspork, using tmp_path if not overridden.
         # We need no concurrent access to the JIT directory, so append pid
         # This will go poorly if someone tries to multithread pytest.
-        jit_path = self.tmp_path_factory.getbasetemp() / f"jit-{os.getpid()}"
-        camspork_jit.set_jit_dir(jit_path)
+        if camspork_jit.get_jit_dir_env_var_name() not in os.environ:
+            jit_path = self.tmp_path_factory.getbasetemp() / f"jit-{os.getpid()}"
+            camspork_jit.set_jit_dir(jit_path)
         camspork_jit.set_single_threaded(False)
         camspork_jit.pytest_compiler_count += 1
 

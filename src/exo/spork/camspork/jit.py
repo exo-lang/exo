@@ -49,6 +49,10 @@ def set_single_threaded(flag):
     _ninja_single_threaded = bool(flag)
 
 
+def get_jit_dir_env_var_name():
+    return _dir_env_var_name
+
+
 def get_jit_dir():
     name = os.environ.get(_dir_env_var_name, _camspork_jit_directory_name)
     if name is None:
