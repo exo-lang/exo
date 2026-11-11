@@ -984,11 +984,15 @@ def top_level_check(
         env.set_debug_validation_enable(debug_always)
         if camspork_trace is not None and single_sync_var is None:
             # Testing (camspork_ref.CamsporkTraceRequest): probes name variables
-            # by str(Sym); must be unambiguous.
+            # by str(Sym); each probed name must be unambiguous.
+            probed_names = {nm for nm, _ in camspork_trace.probes}
             syms = {}
             for sym in backend.mem_env:
-                assert str(sym) not in syms, f"ambiguous trace probe name {sym}"
-                syms[str(sym)] = sym
+                if str(sym) in probed_names:
+                    assert (
+                        str(sym) not in syms
+                    ), f"trace probe name {sym} is ambiguous: several declarations in the proc text (e.g. duplicated by unrolling) are named {sym}"
+                    syms[str(sym)] = sym
             env.set_trace(
                 camspork_trace.filename,
                 [(syms[nm], tuple(idx)) for nm, idx in camspork_trace.probes],
