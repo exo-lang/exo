@@ -15,6 +15,7 @@ from typing import Optional, Any, Dict, Union, List, Set, Callable
 
 import numpy as np
 import pytest
+from _pytest.assertion.util import assertrepr_compare
 from _pytest.config import argparsing, Config
 from _pytest.nodes import Node
 
@@ -227,6 +228,30 @@ class GoldenOutput(str):
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(str(actual))
         return equal or self.update
+
+
+def pytest_assertrepr_compare(config, op, left, right):
+    """Diff what GoldenOutput.__eq__ actually compared.
+
+    By default, pytest diffs the original operands, so an uncensored working
+    directory path shows up in the diff even though it's not the real mismatch.
+    """
+    if op != "==":
+        return None
+    if isinstance(left, GoldenOutput) and isinstance(right, str):
+        golden, actual = left, right
+        left, right = str(left), _censor_working_directory(right)
+    elif isinstance(right, GoldenOutput) and isinstance(left, str):
+        golden, actual = right, left
+        left, right = _censor_working_directory(left), str(right)
+    else:
+        return None
+    lines = assertrepr_compare(config, op, left, right) or []
+    return [
+        f"golden {golden.path} mismatch (diff of working-directory-censored output, "
+        f"saved to {golden.tmp_path / 'actual_golden.txt'})",
+        *lines[1:],
+    ]
 
 
 @dataclass
