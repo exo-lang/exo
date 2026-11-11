@@ -289,7 +289,7 @@ _add_ExpectSyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
 
 _add_SyncEnvManageRingBuffer = lib.camspork_add_SyncEnvManageRingBuffer
 _add_SyncEnvManageRingBuffer.restype = StmtRef
-_add_SyncEnvManageRingBuffer.argtypes = (c_void_p, c_uint32, Varname, Varname, c_uint32, c_uint32, c_uint32, ptr_ArriveIdx)
+_add_SyncEnvManageRingBuffer.argtypes = (c_void_p, c_uint32, Varname, Varname, c_uint32, c_uint32, c_uint32, c_uint32, ptr_ArriveIdx)
 
 _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
@@ -884,6 +884,7 @@ class ProgramBuilder:
         buffer: Varname,
         managed_ring_buffer_dim_idx: int,
         buffer_depth: int,
+        is_free: bool,
         barrier_multicasts: Tuple[Tuple[bool]],
         *,
         srcinfo=None,
@@ -907,7 +908,8 @@ class ProgramBuilder:
             buffer_var,
             managed_ring_buffer_dim_idx,
             buffer_depth,
-            guard_dim,
+            is_free,
+            guard_dim,  # length of arrive_idx list
             arrive_idx,
         )
         return self.check_stmt(srcinfo, stmt_id)

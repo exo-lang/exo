@@ -444,7 +444,7 @@ class CamsporkDo(LoopIR_Do):
 
             # Set up managed ring buffer, if applicable.
             if want_sync and ring_dim_idx is not None:
-                self.manage_ring_buffer(s)
+                self.manage_ring_buffer(s, False)
 
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True
@@ -480,11 +480,8 @@ class CamsporkDo(LoopIR_Do):
                         srcinfo=s.srcinfo,
                     )
                 else:
-                    # SyncEnvFreeManagedRingBuffer (free_on_arrive) was removed.
-                    raise NotImplementedError(
-                        f"{s.srcinfo}: TODO sync-check free of managed ring buffer {s.name} "
-                        f"(replace SyncEnvFreeManagedRingBuffer with SmemAppendix pending await checks)"
-                    )
+                    # Do on-free checks for managed ring buffer.
+                    self.manage_ring_buffer(s, True)
 
             # Must be after SyncEnvFreeShards,
             # since this deletes the SyncEnv data for the variable.
@@ -588,7 +585,7 @@ class CamsporkDo(LoopIR_Do):
         else:
             super().do_s(s)
 
-    def manage_ring_buffer(self, s: Union[LoopIR.Alloc, LoopIR.Free]):
+    def manage_ring_buffer(self, s: Union[LoopIR.Alloc, LoopIR.Free], is_free: bool):
         b = self._builder
         ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
         assert isinstance(ring_dim_idx, int)
@@ -629,7 +626,7 @@ class CamsporkDo(LoopIR_Do):
                 f"{s.srcinfo}: {guarded_by}: {guard_typ} has incorrect managed ring buffer dimension index to match {s}"
             )
         tmp_vars = tuple(
-            b.add_variable(f"_ring{i}_{s.name}") for i in range(guard_num_dims)
+            b.add_variable(Sym(f"_ring{i}_{s.name}")) for i in range(guard_num_dims)
         )
         loop_nest = [
             b.SeqFor(
@@ -651,7 +648,8 @@ class CamsporkDo(LoopIR_Do):
             b.get_varname(s.name),
             ring_dim_idx,
             ring_depth,
-            barrier_multicasts,
+            is_free=is_free,
+            barrier_multicasts=barrier_multicasts,
             srcinfo=s.srcinfo,
         )
         for for_node in reversed(loop_nest):

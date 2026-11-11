@@ -193,6 +193,8 @@ void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccess
 void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
+void on_check_pending_awaits(SyncvTable*, AssignmentRecordWindow, uint32_t num_barriers, const barrier_id* barriers, decltype(nullptr) = nullptr);
+void on_check_pending_awaits(SyncvTable*, AssignmentRecordWindow, uint32_t num_barriers, const barrier_id* barriers, const SyncvLogRequest&);
 void set_managed_ring_buffer_barriers(
         SyncvTable*,
         qual_bits_t,

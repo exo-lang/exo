@@ -860,6 +860,7 @@ struct stmt<24>
 //     Varname buffer,
 //     int managed_ring_buffer_dim_idx,
 //     int buffer_depth,
+//     bool is_free,
 //     expr* idx,
 //     multicast_flag* multicasts)
 //
@@ -876,16 +877,21 @@ struct stmt<24>
 // If guard == buffer (self-guarded), then
 //   * alloc_on_await_barriers = multicast_group(guard[idx - V]); empty if out-of-bounds
 //   * buffer_shard = guard[idx]
-//   * free_on_arrive = guard[idx + V]; null if out-of-bounds
+//   * free_on_arrive = multicast_group(guard[idx + V]); null if out-of-bounds
 // If guard != buffer, then
 //   * alloc_on_await_barriers = multicast_group(guard[idx])
 //   * buffer_shard = buffer[idx, :...]
-//   * free_on_arrive = guard[idx + V]
+//   * free_on_arrive = multicast_group(guard[idx + V])
 //
-// Each AssignmentRecord in the buffer_shard window is initialized to have the
-// specified free_on_arrive value, and a Mutate VisRecord with an empty visibility
-// set, and PendingAwaitRays with arrive_count = expected_arrive_count - 1
-// for each barrier in alloc_on_await_barriers.
+// is_free=False (alloc):
+//   Each AssignmentRecord in the buffer_shard window is initialized to have a
+//   Mutate VisRecord with an empty visibility set, and PendingAwaitRays with
+//   arrive_count = expected_arrive_count - 1 for each barrier in alloc_on_await_barriers.
+//
+// is_free=True (free):
+//   Each VisRecord (mutate or read) in the buffer_shard window is checked
+//   to contain PendingAwait(x_b, z_b^*, expected_arrive_count - 1)
+//   for ALL x_b[z_b^*] in free_on_arrive.
 using SyncEnvManageRingBuffer = stmt<25>;
 template<>
 struct stmt<25>
@@ -895,6 +901,7 @@ struct stmt<25>
     Varname buffer;
     uint32_t managed_ring_buffer_dim_idx;
     uint32_t buffer_depth;
+    uint32_t is_free;  // alloc or free?
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 

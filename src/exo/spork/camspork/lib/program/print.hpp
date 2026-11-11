@@ -293,6 +293,7 @@ class ProgramPrinter
         *this << ", " << node->buffer;
         *this << ", " << node->managed_ring_buffer_dim_idx;
         *this << ", " << node->buffer_depth;
+        *this << ", is_free=" << (node->is_free ? "True" : "False");
         // multicasts: transpose bits in multicast_per_expr to recover this.
         *this << ", barrier_multicasts=(";
         print_multicasts(node);

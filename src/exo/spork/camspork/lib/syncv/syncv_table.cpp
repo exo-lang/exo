@@ -307,6 +307,11 @@ struct SyncvTrivialLogger
     void history_vis_record_error(nodepool::id<VisRecordListNode<K>>, LoggedMissingTlSig)
     {
     }
+
+    template <VisRecordKind K>
+    void history_missing_free_on_arrive(nodepool::id<VisRecordListNode<K>>, barrier_id)
+    {
+    }
 };
 
 struct VisRecordChunkMaxHash
@@ -2440,6 +2445,70 @@ struct SyncvTable
         decref(new_record_id);
     }
 
+    template <typename Logger>
+    void on_check_pending_awaits(
+            AssignmentRecordWindow input, uint32_t num_barriers, const barrier_id* barriers, Logger&& logger)
+    {
+        Set<nodepool::id<AssignmentRecord>> seen_id_set;
+
+        auto have_needed_pending_await = [&] (const VisRecord& vis_record, barrier_id barrier)
+        {
+            if (!vis_record.pending_awaits) {
+                return false;
+            }
+            const HamsterPendingAwaitSet& pa_set = get(vis_record.pending_awaits);
+            const auto begin_it = pa_set.sorted_map.begin();
+            const auto end_it = pa_set.sorted_map.end();
+            const auto it = std::lower_bound(begin_it, end_it, barrier);
+            if (it == end_it) {
+                return false;
+            }
+            const PendingAwaitRay& pa_ray = *it;
+            if (pa_ray.hamster_barrier_id != barrier) {
+                return false;
+            }
+            const HamsterBarrierState& barrier_state = get(barrier);
+            CAMSPORK_REQUIRE_CMP(barrier_state.expected_arrive_count, >=, 1,
+                "expected_arrive_count not set for guard barrier of managed ring buffer");
+            return pa_ray.arrive_count <= barrier_state.expected_arrive_count - 1;
+        };
+
+        auto check_vis_record_list = [&] (nodepool::id<DefaultAssignmentRecordVisNode> id, size_t linear_index)
+        {
+            while (id) {
+                DefaultAssignmentRecordVisNode& list_node = get(id);
+                id = list_node.camspork_next_id;
+                const VisRecord& vis_record = remove_forwarding(&list_node.vis_record_id);
+                for (uint32_t i = 0; i < num_barriers; ++i) {
+                    const barrier_id barrier = barriers[i];
+                    if (!have_needed_pending_await(vis_record, barrier)) {
+                        logger.history_vis_record_checked(list_node.vis_record_id, true);
+                        // This error is using the legacy free_on_arrive name but I don't want to update for now.
+                        logger.history_missing_free_on_arrive(list_node.vis_record_id, barrier);
+                        throw SyncvCheckFail("free_missing_arrive HAZARD", linear_index);
+                    }
+                }
+            }
+        };
+
+        cuboid_to_intervals<size_t>(
+            input.begin_outer_extent, input.end_outer_extent,
+            input.begin_offset, input.end_offset,
+            input.begin_inner_extent, input.end_inner_extent,
+            [&] (size_t lo, size_t hi) {
+                for (size_t i = lo; i < hi; ++i) {
+                    nodepool::id<AssignmentRecord> id{input.base[i].node_id};
+                    if (id && !seen_id_set.count(id)) {
+                        const AssignmentRecord& record = get(id);
+                        check_vis_record_list(record.mutate_vis_records_head_id, i);
+                        check_vis_record_list(record.read_vis_records_head_id, i);
+                    }
+                    seen_id_set.insert(id);
+                }
+            }
+        );
+    }
+
     void clear_visibility(size_t N, assignment_record_id* p_assignment_record_ids)
     {
         for (size_t i = 0; i < N; ++i) {
@@ -3230,6 +3299,15 @@ struct SyncvRealLogger
         }
     }
 
+    template <VisRecordKind K>
+    void history_missing_free_on_arrive(
+        nodepool::id<VisRecordListNode<K>> vis_record_id,
+        barrier_id free_on_arrive)
+    {
+        if (p_history_log) {
+            p_history_log->log_syncv_missing_free_on_arrive(history_log_vis_record_id(vis_record_id), free_on_arrive);
+        }
+    }
   private:
     template <VisRecordKind K>
     LoggedVisRecordData _get_history_vis_record_data(SyncvTable& env, nodepool::id<VisRecordListNode<K>> node_id)
@@ -3388,6 +3466,24 @@ void on_check_free(
 {
     INTERFACE_PROLOGUE(table)
     table->on_check_free(input, cuboid, access, SyncvRealLogger(log));
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_check_pending_awaits(
+        SyncvTable* table, AssignmentRecordWindow input,
+        uint32_t num_barriers, const barrier_id* barriers, decltype(nullptr))
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_check_pending_awaits(input, num_barriers, barriers, SyncvTrivialLogger{});
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_check_pending_awaits(
+        SyncvTable* table, AssignmentRecordWindow input,
+        uint32_t num_barriers, const barrier_id* barriers, const SyncvLogRequest& log)
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_check_pending_awaits(input, num_barriers, barriers, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 

@@ -923,7 +923,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 "managed_ring_buffer_dim_idx out-of-range"
         );
 
-        // Set up the to-be-modified window of the buffer's SyncEnv.
+        // Set up the to-be-modified or checked window of the buffer's SyncEnv.
         // This is [this_idx[0], this_idx[1], ..., this_idx[this_idx.size() - 1], :, :, :]
         // So offset = this_idx, extent = 1 on point dimensions
         // and offset = 0, extent = buffer_extent[...] on interval (:) dimensions.
@@ -949,43 +949,79 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         buffer_slot.idx(window_offset.begin(), window_offset.end());  // Convenient bounds-check helper.
 
+        // Single position input mode: clamp window, or early exit.
         if (!filter_single_position_input(buffer_name, buffer_slot, &input)) {
             return;
         }
 
-        // Figure out the alloc_on_await and free_on_arrive barriers.
+        // Figure out the alloc_on_await or free_on_arrive barriers.
         VarSlotEntry<barrier_id>& guard_slot = env.barrier_slot(guard_name);
-        std::vector<barrier_id> alloc_on_await_barriers;
-        std::vector<extent_t> alloc_on_await_idx = this_idx;
+        std::vector<barrier_id> guard_barriers;
+        std::vector<extent_t> guard_idx = this_idx;
 
         guard_slot.idx(this_idx.begin(), this_idx.end());  // Convenient bounds & dim check helper
 
-        auto append_barrier = [&alloc_on_await_barriers] (VarSlotEntry<barrier_id>& slot, uint32_t linear_idx)
+        auto append_barrier = [&guard_barriers] (VarSlotEntry<barrier_id>& slot, uint32_t linear_idx)
         {
-            alloc_on_await_barriers.push_back(slot.data()[linear_idx]);
+            guard_barriers.push_back(slot.data()[linear_idx]);
         };
-        if (self_guarded) {
-            if (alloc_on_await_idx[M] < buffer_depth) {
-                // Out of bounds, don't init any alloc_on_await_barriers.
+
+        if (node->is_free) {
+            guard_idx[M] += buffer_depth;  // Stride up on ring buffer dimension
+            if (guard_idx[M] >= guard_slot.extent()[M] && self_guarded) {
+                // Out of bounds, don't init any guard barriers for checking.
             }
             else {
-                alloc_on_await_idx[M] -= buffer_depth;
-                eval_multicast(node, guard_slot, append_barrier, alloc_on_await_idx);
+                // Either in-bounds, or !self_guarded and and error will result.
+                eval_multicast(node, guard_slot, append_barrier, guard_idx);
+            }
+            try {
+                on_check_pending_awaits(
+                    env.p_syncv_table.get(),
+                    input,
+                    uint32_t(guard_barriers.size()),
+                    guard_barriers.data(),
+                    prepare_logger(node, env.prepare_thread_cuboid())
+                );
+            }
+            catch (const SyncvCheckFail& exc) {
+                // Unlike SyncEnvAccessNode, we wrap the error message with free(...)
+                env._syncv_fail_var = buffer_name;
+                env._syncv_fail_idx = buffer_slot.idx_from_linear(exc.linear_index_in_input());
+                std::stringstream s;
+                s << exc.what() << " @ free(" << env.str_name(buffer_name);
+                print_idx_helper(s, env._syncv_fail_idx);
+                s << ")";
+                env.add_remark(env.stmt_ref_from_ptr(node), s.str());
+                added_error_remark = true;
+                throw;
             }
         }
         else {
-            eval_multicast(node, guard_slot, append_barrier, alloc_on_await_idx);
+            // !node->is_free
+            if (self_guarded) {
+                if (guard_idx[M] < buffer_depth) {
+                    // Out of bounds, don't init any guard barriers for allocation.
+                }
+                else {
+                    guard_idx[M] -= buffer_depth;  // Stride down on ring buffer dimension
+                    eval_multicast(node, guard_slot, append_barrier, guard_idx);
+                }
+            }
+            else {
+                eval_multicast(node, guard_slot, append_barrier, guard_idx);
+            }
+            // Finally update the syncv_table state.
+            set_managed_ring_buffer_barriers(
+                env.p_syncv_table.get(),
+                node->qual_tl_mask,
+                input,
+                uint32_t(guard_barriers.size()),
+                guard_barriers.data(),
+                prepare_logger(node, env.prepare_thread_cuboid())
+            );
         }
-
-        // Finally update the syncv_table state.
-        set_managed_ring_buffer_barriers(
-            env.p_syncv_table.get(),
-            node->qual_tl_mask,
-            input,
-            uint32_t(alloc_on_await_barriers.size()),
-            alloc_on_await_barriers.data(),
-            prepare_logger(node, env.prepare_thread_cuboid())
-        );
+        env.maybe_syncv_debug_validate();
     }
 
     void exec_impl(const BarrierEnvAlloc* node)
