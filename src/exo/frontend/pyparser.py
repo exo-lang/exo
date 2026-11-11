@@ -232,9 +232,15 @@ class ExoSymbol:
     """
     Opaque wrapper class for representing symbols in object code. Can be unquoted in both expressions and
     implicitly on left-hand side of statements.
+
+    _inner is a SizeStub for size variables, so they remain read-only.
     """
 
-    _inner: Sym
+    _inner: Union[Sym, SizeStub]
+
+    def read_sym(self) -> Sym:
+        inner = self._inner
+        return inner.nm if isinstance(inner, SizeStub) else inner
 
 
 @dataclass
@@ -434,7 +440,7 @@ class UnquoteEnv:
         quote_locals = {
             name: ExoSymbol(val)
             for name, val in self.exo_locals.items()
-            if isinstance(val, Sym)
+            if isinstance(val, (Sym, SizeStub))
         }
         unbound_names = {
             name
@@ -1583,7 +1589,7 @@ class Parser:
                 ):
                     return unquoted._inner
                 elif isinstance(unquoted, ExoSymbol):
-                    return self.AST.Read(unquoted._inner, [], srcinfo)
+                    return self.AST.Read(unquoted.read_sym(), [], srcinfo)
                 elif isinstance(unquoted, slice) and top_level:
                     if unquoted.step is None:
                         return UAST.Interval(
@@ -1706,7 +1712,7 @@ class Parser:
             ):
                 return unquoted._inner
             elif isinstance(unquoted, ExoSymbol):
-                return self.AST.Read(unquoted._inner, [], self.getsrcinfo(e))
+                return self.AST.Read(unquoted.read_sym(), [], self.getsrcinfo(e))
             else:
                 self.err(e, "Unquote received input that couldn't be unquoted")
         elif isinstance(e, (pyast.Name, pyast.Subscript)):

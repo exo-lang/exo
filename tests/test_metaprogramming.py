@@ -1,5 +1,6 @@
 from __future__ import annotations
 from exo import proc, compile_procs_to_strings
+from exo.API_cursors import ReadCursor
 from exo.API_scheduling import rename
 from exo.frontend.pyparser import ParseError
 import pytest
@@ -551,3 +552,73 @@ def test_implicit_lhs_unquote(golden):
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
     assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
+
+
+# Size variables in quotes and unquotes. Each test has a Python distractor
+# variable with the same name as the size argument; the Exo size argument
+# must shadow it (as for other Exo variables, see test_scoping).
+# We check the parsed Sym identity using cursors, since a distractor read
+# would otherwise silently parse as a constant or a fresh variable.
+# (Arrays are sized so a distractor read is still in-bounds, so that it's
+# the Sym checks, not bounds checking, that would catch a regression).
+
+
+def _arg_sym(p, name):
+    (arg,) = [a for a in p.args() if a.name() == name]
+    return arg._impl._node.name
+
+
+def _read_sym(cursor):
+    assert isinstance(cursor, ReadCursor), f"expected read, got {cursor._impl._node}"
+    return cursor._impl._node.name
+
+
+def test_quote_reads_size_arg():
+    K = 32  # Distractor
+
+    @proc
+    def foo(M: size, N: size, K: size, x: f32[64]):
+        assert K <= 64
+        with python:
+            for _ in range(2):
+                with exo:
+                    for k in seq(0, K):
+                        x[k] = 0
+
+    K_sym = _arg_sym(foo, "K")
+    loops = foo.find_loop("k", many=True)
+    assert len(loops) == 2
+    for loop in loops:
+        assert _read_sym(loop.hi()) is K_sym
+
+
+def test_unquote_size_arg():
+    K = 32  # Distractor
+
+    @proc
+    def foo(K: size, x: f32[64]):
+        assert K < 64
+        for k in seq(0, {K}):
+            x[k] = 0
+        x[{K}] = 0
+        with python:
+            with exo:
+                x[{K}] = 1
+
+    K_sym = _arg_sym(foo, "K")
+    assert _read_sym(foo.body()[0].hi()) is K_sym
+    for s in foo.body()[1:]:
+        (idx,) = s.idx()
+        assert _read_sym(idx) is K_sym
+
+
+def test_quote_write_size_arg_error():
+    K = 32  # Distractor
+
+    with pytest.raises(ParseError, match="cannot write to size variable 'K'"):
+
+        @proc
+        def foo(K: size):
+            with python:
+                with exo:
+                    K = 0
