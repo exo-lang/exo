@@ -862,7 +862,9 @@ struct stmt<24>
 //     int buffer_depth,
 //     expr* idx,
 //     multicast_flag* multicasts)
-// multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx][expr_idx]
+//
+// idx[dim_idx] = ArriveIdx[dim_idx].idx
+// multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx].multicasts_per_expr[expr_idx]  # bit index
 //
 // Let V be the vector (0 ... 0, buffer_depth, 0 ... 0)
 // where buffer_depth is on the managed_ring_buffer_dim_idx-th dimension.
