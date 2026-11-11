@@ -278,9 +278,8 @@ def sched_cut_sync_iter_k(p, config: GemmConfig):
     #     # Unblock the producer +ring_depth iterations in the future.
     #     Arrive(cuda_async_proxy_retired) >> war[cta_m, :, iter_k + ring_depth] >> war[:, cta_n, iter_k + ring_depth]
     #
-    # For ping-pong, same, but the war[...] arrive is moved into the wg_m (warpgroup)
-    # loop and additionally indexed by wg_m. There are two producer warps, each of
-    # which serve only their respective consumer warpgroup.
+    # (The ping-pong gemm handwrites its own equivalent of this; see
+    # handwrite_row_col_ping_pong_gemm).
     p = add_loop(p, pass_c, "cta_m", config.ncta_M)
     p = add_loop(p, pass_c, "cta_n", config.ncta_N)
     p = add_loop(p, pass_c, "wg_m", 2)
@@ -294,28 +293,17 @@ def sched_cut_sync_iter_k(p, config: GemmConfig):
     pass_c = p.forward(pass_c)
 
     # Add the Arrive/Await at correct locations
-    if config.ping_pong:
-        arrive_gap_c = pass_c.after()
-        p = insert_arrive(
-            p,
-            arrive_gap_c,
-            config.consumer_war_sync_tl(),
-            (
-                f"war[cta_m, :, wg_m, iter_k + {ring_depth - 1}]",
-                f"war[:, cta_n, wg_m, iter_k + {ring_depth - 1}]",
-            ),
-        )
-    else:
-        arrive_gap_c = wg_m_c.after()
-        p = insert_arrive(
-            p,
-            arrive_gap_c,
-            config.consumer_war_sync_tl(),
-            (
-                f"war[cta_m, :, iter_k + {ring_depth - 1}]",
-                f"war[:, cta_n, iter_k + {ring_depth - 1}]",
-            ),
-        )
+    assert not config.ping_pong
+    arrive_gap_c = wg_m_c.after()
+    p = insert_arrive(
+        p,
+        arrive_gap_c,
+        config.consumer_war_sync_tl(),
+        (
+            f"war[cta_m, :, iter_k + {ring_depth - 1}]",
+            f"war[:, cta_n, iter_k + {ring_depth - 1}]",
+        ),
+    )
     arrive_c = p.forward(arrive_gap_c).anchor().next()
     should_be_1 = 2 if config.bug == GemmTestBug.wrong_wgmma_cg else 1
     p = insert_await(
@@ -699,193 +687,359 @@ def handwrite_row_row_coop_main_loop(config: GemmConfig):
     return simplify(main_loop)
 
 
-def handwrite_row_col_ping_pong_main_loop(config: GemmConfig):
+# Warp config for the ping-pong gemm.
+# One producer warp (of 4 warps, rest idle); consumer0 and consumer1 are
+# separate warp names (rather than one `consumer` with a cuda_warpgroup loop)
+# so the two warpgroups can execute different code (different ring buffer
+# slots) and be disjoint in time.
+ping_pong_warp_config = [
+    CudaWarpConfig("producer", 4, setmaxnreg_dec=40),
+    CudaWarpConfig("consumer0", 4, setmaxnreg_inc=232),
+    CudaWarpConfig("consumer1", 4, setmaxnreg_inc=232),
+]
+
+
+def handwrite_row_col_ping_pong_gemm(config: GemmConfig):
+    """Ping-pong gemm, modelled on CUTLASS KernelTmaWarpSpecializedPingpong.
+
+    Each device task computes a (cluster_M, cluster_N) tile of C. Each CTA's
+    (cta_M, cta_N) share is split in M into two (wg_M, cta_N) tiles, and
+    consumer warpgroup mp computes all of tile mp (full K reduction and
+    epilogue). Unlike the cooperative gemm, the two consumer warpgroups do
+    not work in lockstep; consumer1's main loop overlaps consumer0's
+    epilogue, and consumer0's next-task main loop overlaps consumer1's
+    epilogue. (CUTLASS uses a tile scheduler that hands out tiles to the
+    two warpgroups alternately; we instead pair tiles 2 per device task).
+
+    SMEM and mbarrier pattern, per CTA (as in CUTLASS):
+
+    * One A/B ring buffer shared by both consumers, filled in order by one
+      producer warp. Logical slot (mp * num_k_iters + iter_k), so consumer1's
+      first slots are filled as soon as consumer0 frees the slots it used.
+      Each slot is released (war) only by the consumer warpgroup that read
+      it, lagging by 1 iteration due to wgmma pipelining (K_PIPE_MMAS = 1).
+
+    * mma_order: token passed consumer0 -> consumer1 -> consumer0 (next task)
+      ordering main loops (CUTLASS OrderedSequenceBarrier stage 0).
+      Arrived after issuing the last wgmma, but before waiting for it
+      to retire (CUTLASS mma vs mma_tail).
+
+    * epi_order: token passed likewise, ordering epilogues
+      (OrderedSequenceBarrier stage 1). This protects C_smem, a single SMEM
+      buffer shared by both consumers; the token is passed only after the
+      TMA store retires (CUTLASS store_tail before order barrier arrive).
+
+    The managed ring buffers make the cross-task handoffs work: tasks
+    don't synchronize the whole CTA/cluster (unlike the cooperative gemm).
+
+    Deviations from CUTLASS: tile scheduling as described above; the
+    epilogue uses an mbarrier (epi_smem_ready) instead of a named barrier,
+    and is not internally pipelined; no C (source) loads.
+
+    """
     A_type = config.get_A_ScalarInfo()
     B_type = config.get_B_ScalarInfo()
+    C_type = config.get_C_ScalarInfo()
     D_type = config.get_D_ScalarInfo()
     ncta_M = config.ncta_M
     ncta_N = config.ncta_N
     cta_M = config.cta_M
     cta_N = config.cta_N
-    wg_M = perfect_div(config.cta_M, 2)
+    wg_M = perfect_div(cta_M, 2)
     cluster_M = ncta_M * cta_M
     cluster_N = ncta_N * cta_N
     ring_depth = config.ring_depth
     swizzle = config.swizzle
 
-    M_wg_tiles = perfect_div(cta_M, 128)
+    M_wg_tiles = perfect_div(wg_M, 64)
     smem_K = config.make_smem_K()
     smem_box_A = config.make_smem_box_A()
     smem_box_B = config.make_smem_box_B()
+    smem_box_C = config.make_smem_box_C()
+    enable_split_k = bool(config.enable_split_k)
+    war_sync_tl = config.consumer_war_sync_tl()
+    should_be_1 = 2 if config.bug == GemmTestBug.wrong_wgmma_cg else 1
 
     assert config.A_major == "row"
     assert config.B_major == "col"
+    assert config.C_major == "row"
     assert config.ping_pong
+    assert not config.A_in_rmem
+    assert config.bug in (GemmTestBug.none, GemmTestBug.wrong_wgmma_cg), "TODO"
+
+    # Each warp stores (16 x cta_N) tiles.
+    D_tile_mem = Sm90_TkRmemTileD(cta_N)
+
+    # See handwrite_coop_epilogue
+    advice: CudaTkRsInstrAdvice = cuda_tk_store_rs_advice(
+        16, cta_N, dst=C_type, src=D_type, swizzle=swizzle
+    )
+    store_smem = advice.instr
+    outer_N = advice.outer_cols
+    inner_N = advice.inner_cols
 
     # fmt: off
     @proc
-    def main_loop(
+    def gemm(
+        L: size,
+        M: size,
+        N: size,
+        K_split: size,
         K_cluster: size,
-        D_rmem: [D_type][ncta_M, ncta_N, 2, 4, M_wg_tiles, 16, cta_N],
-        A_win: [A_type][cluster_M, K_cluster],
-        B_win: [B_type][cluster_N, K_cluster],
+        # [batch, m, task_k, ks]; see handwrite_row_col_gemm
+        A: A_type[L, M, K_split, K_cluster] @ CudaGmemLinear,
+        B: B_type[L, N, K_split, K_cluster] @ CudaGmemLinear,
+        C: C_type[L, M, N] @ CudaGmemLinear,
     ):
-        assert stride(A_win, 1) == 1
-        assert stride(B_win, 1) == 1
-        war: barrier[
-            ncta_M,
-            ncta_N,
-            2,
-            ((K_cluster + smem_K - 1) / smem_K + ring_depth) @ ring_buffer_by(ring_depth),
-        ] @ CudaMbarrierPreArrive(ring_depth)
+        assert stride(A, 3) == 1
+        assert stride(B, 3) == 1
+        assert stride(C, 2) == 1
+        assert L % L_divisor == 0
+        assert M % M_divisor == 0
+        assert N % N_divisor == 0
+        assert K_cluster > 0
+        assert K_cluster % K_cluster_divisor == 0
 
-        raw: barrier[
-            ncta_M,
-            ncta_N,
-            2,
-            ((K_cluster + smem_K - 1) / smem_K + 0) @ ring_buffer_by(ring_depth),
-        ] @ CudaMbarrierPreArrive(0)
+        A_tensorMap = A[:,:,:,:] @ Sm90_tensorMap(swizzle, *smem_box_A)
+        B_tensorMap = B[:,:,:,:] @ Sm90_tensorMap(swizzle, *smem_box_B)
+        C_tensorMap = C[:,:,:] @ Sm90_tensorMap(swizzle, *smem_box_C)
 
-        A_smem: A_type[
-            ncta_M,
-            ncta_N,
-            2,
-            ((K_cluster + smem_K - 1) / smem_K + 0) @ ring_buffer_by(ring_depth),
-            wg_M,
-            smem_K,
-        ].ring_guarded_by(war) @ Sm90_SmemSwizzled(swizzle)
-        B_smem: B_type[
-            ncta_M,
-            ncta_N,
-            2,
-            ((K_cluster + smem_K - 1) / smem_K + 0) @ ring_buffer_by(ring_depth),
-            cta_N,
-            smem_K,
-        ].ring_guarded_by(war) @ Sm90_SmemSwizzled(swizzle)
-        wgmma_cg: barrier[ncta_M, ncta_N, 2] @ Sm90_WgmmaCommitGroup
+        if enable_split_k:
+            cudaMemsetAsync0_3d(L, M, N, C[:, :, :], dst=C_type)
 
-        for iter_k in seq(0, ((K_cluster + smem_K - 1) / smem_K)):
-            with CudaWarps(name="producer"):
-                for ping in cuda_threads(0, 2, unit=cuda_warp):
-                    # Each half-CTA waits for its respective write-after-read protection barrier.
-                    for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
-                        for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                            Await(war[cta_m, cta_n, ping, iter_k], cuda_async_proxy_retired, 0)
-                    # CTAs cooperate along the N dimension to multicast the needed tiles of A.
-                    for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
-                        Sm90_tma_load_multicast_2d(
-                            A_smem[cta_m, :, ping, iter_k, :, :],
-                            A_win[
-                                cta_m * cta_M + wg_M * ping :
-                                cta_m * cta_M + wg_M * ping + wg_M,
-                                iter_k * smem_K :
-                                iter_k * smem_K + smem_K,
-                            ],
-                            ncta=ncta_N, cta_stride=1, size0=wg_M, size1=smem_K,
-                            smem_box=smem_box_A, dst=A_type, src=A_type,
-                        ) >> raw[cta_m, :, ping, iter_k]
-                    # CTAs cooperate along the M dimension to multicast the needed tiles of B.
-                    for cta_n in cuda_threads(0, ncta_N, unit=ncta_M * cuda_cta_in_cluster_strided(ncta_N)):
-                        Sm90_tma_load_multicast_2d(
-                            B_smem[:, cta_n, ping, iter_k, :, :],
-                            B_win[
-                                cta_n * cta_N :
-                                cta_n * cta_N + cta_N,
-                                iter_k * smem_K :
-                                iter_k * smem_K + smem_K,
-                            ],
-                            ncta=ncta_M, cta_stride=ncta_N, size0=cta_N, size1=smem_K,
-                            smem_box=smem_box_B, dst=B_type, src=B_type,
-                        ) >> raw[:, cta_n, ping, iter_k]
-                    # Each half-CTA arrives on read-after-write protection barriers.
-                    # Multicast to any CTA with the same cta_m OR the same cta_n.
-                    for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
-                        for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                            Arrive(cuda_async_proxy_retired) >> raw[cta_m, :, ping, iter_k] >> raw[:, cta_n, ping, iter_k]
-            with CudaWarps(name="consumer"):
-                for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
-                    for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                        for ping in cuda_threads(0, 2, unit=cuda_warpgroup):
-                            # Each half-CTA waits for its respective read-after-write protection barrier.
-                            Await(raw[cta_m, cta_n, ping, iter_k], cuda_generic_and_async_proxy, 0)
-                            # Each warpgroup does its own WGMMAs, then arrives on its own commit group.
-                            Fence(wgmma_fence_1, wgmma_fence_2)
-                            for ms in seq(0, M_wg_tiles, pragma_unroll=0):
-                                Sm90_tk_mma_row_col_zi(
-                                    D_rmem[cta_m, cta_n, ping, :, ms, :, :],
-                                    A_smem[cta_m, cta_n, ping, iter_k,
-                                           ms * 64 :
-                                           ms * 64 + 64, :],
-                                    B_smem[cta_m, cta_n, ping, iter_k, :, :],
-                                    iter_k == 0,
-                                    D=D_type, A=A_type, B=B_type, N=cta_N, K=smem_K,
-                                )
-                            Arrive(wgmma_async) >> wgmma_cg[cta_m, cta_n, ping]
-                        # This is where it gets annoying.
-                        # Each iteration except iter_k = 0 has to Await for its commit group
-                        # then Arrive on the war (write-after-read) mbarriers
-                        # multicasted like done in the producer.
-                        #
-                        # We use scheduling for this (despite "handwrite") because too annoying.
-                        # We have to cut the iter_k loop and insert the barriers only on
-                        # the second loop.
-        # End iter_k loop
+        with CudaDeviceFunction(
+            clusterDim=ncta_M * ncta_N,
+            warp_config=ping_pong_warp_config,
+            blocks_per_sm=1,
+        ):
+            for batch in cuda_tasks(0, L):
+                for task_k in cuda_tasks(0, K_split):
+                    for task_m in cuda_tasks(0, (M + cluster_M - 1) / cluster_M):
+                        for task_n in cuda_tasks(0, (N + cluster_N - 1) / cluster_N):
+                            # Main loop A/B ring buffer.
+                            # Logical slot (mp * num_k_iters + iter_k) for ping-pong iteration mp.
+                            war: barrier[
+                                ncta_M,
+                                ncta_N,
+                                (2 * ((K_cluster + smem_K - 1) / smem_K) + ring_depth) @ ring_buffer_by(ring_depth),
+                            ] @ CudaMbarrierPreArrive(ring_depth)
+                            raw: barrier[
+                                ncta_M,
+                                ncta_N,
+                                (2 * ((K_cluster + smem_K - 1) / smem_K)) @ ring_buffer_by(ring_depth),
+                            ] @ CudaMbarrierPreArrive(0)
+                            A_smem: A_type[
+                                ncta_M,
+                                ncta_N,
+                                (2 * ((K_cluster + smem_K - 1) / smem_K)) @ ring_buffer_by(ring_depth),
+                                wg_M,
+                                smem_K,
+                            ].ring_guarded_by(war) @ Sm90_SmemSwizzled(swizzle)
+                            B_smem: B_type[
+                                ncta_M,
+                                ncta_N,
+                                (2 * ((K_cluster + smem_K - 1) / smem_K)) @ ring_buffer_by(ring_depth),
+                                cta_N,
+                                smem_K,
+                            ].ring_guarded_by(war) @ Sm90_SmemSwizzled(swizzle)
 
-        # Consumer has to wait for all wgmma to retire and do the
-        # final arrive on the war mbarriers. Note: for the persistent
-        # kernel to work, this Arrive needs to be done, so mbarriers are left in
-        # a consistent state. The sync_check enforces this: each allocated mbarrier
-        # must have received its full expected (mbarrier.init) arrive count.
-        with CudaWarps(name="consumer"):
-            for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
-                for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                    for wg_m in cuda_threads(0, 2, unit=cuda_warpgroup):
-                        Await(wgmma_cg[cta_m, cta_n, wg_m], cuda_generic_and_async_proxy, 0)
-                        Arrive(config.consumer_war_sync_tl()
-                            ) >> war[cta_m, :, wg_m, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)
-                            ] >> war[:, cta_n, wg_m, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)]
+                            # Consumer ordering tokens (CUTLASS math_wg_order_barrier).
+                            # Logical index mp: consumer mp awaits token mp, passes token mp + 1.
+                            # Token 2 aliases token 0 of the next task on this CTA.
+                            mma_order: barrier[ncta_M, ncta_N, 3 @ ring_buffer_by(2)] @ CudaMbarrierPreArrive(1)
+                            epi_order: barrier[ncta_M, ncta_N, 3 @ ring_buffer_by(2)] @ CudaMbarrierPreArrive(1)
 
-    # Does nothing by default (this is just for the Exo test suite)
-    main_loop = inject_ping_pong_main_loop_bug(main_loop, config)
+                            # Epilogue SMEM shared by both consumers, protected by epi_order.
+                            C_smem: C_type[
+                                ncta_M,
+                                ncta_N,
+                                2 @ ring_buffer_by(1),
+                                outer_N,
+                                wg_M,
+                                inner_N,
+                            ].ring_guarded_by(epi_order) @ Sm90_SmemSwizzled(swizzle)
+                            # Consumer mp's warpgroup-wide RMEM -> C_smem sync before the TMA store.
+                            epi_smem_ready: barrier[ncta_M, ncta_N, 2 @ ring_buffer_by(2)] @ CudaMbarrierPreArrive(0)
 
-    main_loop = sched_cut_sync_iter_k(main_loop, config)
-    return simplify(main_loop)
+                            with python:
+                                for mp in range(2):  # Ping-pong iteration
+                                    consumer_name = f"consumer{mp}"
+                                    with exo:
+                                        # D_rmem[cta_m, cta_n, w, ms, mt, nt]: consumer mp's accumulators
+                                        # m = mp * wg_M + ms * 64 + w * 16 + mt
+                                        D_rmem: D_type[ncta_M, ncta_N, 4, M_wg_tiles, 16, cta_N] @ D_tile_mem
+                                        wgmma_cg: barrier[ncta_M, ncta_N] @ Sm90_WgmmaCommitGroup
+
+                                        with CudaWarps(name=consumer_name):
+                                            for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
+                                                for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
+                                                    Await(mma_order[cta_m, cta_n, mp], cuda_in_order, 0)
+
+                                        # Main loop
+                                        for iter_k in seq(0, ((K_cluster + smem_K - 1) / smem_K)):
+                                            with CudaWarps(0, 1, name="producer"):
+                                                # Each CTA waits for its respective write-after-read protection barrier.
+                                                for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
+                                                    for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
+                                                        Await(war[cta_m, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k],
+                                                              cuda_async_proxy_retired, 0)
+                                                # CTAs cooperate along the N dimension to multicast the needed tiles of A.
+                                                for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
+                                                    Sm90_tma_load_multicast_2d(
+                                                        A_smem[cta_m, :, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k, :, :],
+                                                        A_tensorMap[
+                                                            batch,
+                                                            task_m * cluster_M + cta_m * cta_M + mp * wg_M :
+                                                            task_m * cluster_M + cta_m * cta_M + mp * wg_M + wg_M,
+                                                            task_k,
+                                                            iter_k * smem_K :
+                                                            iter_k * smem_K + smem_K,
+                                                        ],
+                                                        ncta=ncta_N, cta_stride=1, size0=wg_M, size1=smem_K,
+                                                        smem_box=smem_box_A, dst=A_type, src=A_type,
+                                                    ) >> raw[cta_m, :, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k]
+                                                # CTAs cooperate along the M dimension to multicast the needed tiles of B.
+                                                for cta_n in cuda_threads(0, ncta_N, unit=ncta_M * cuda_cta_in_cluster_strided(ncta_N)):
+                                                    Sm90_tma_load_multicast_2d(
+                                                        B_smem[:, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k, :, :],
+                                                        B_tensorMap[
+                                                            batch,
+                                                            task_n * cluster_N + cta_n * cta_N :
+                                                            task_n * cluster_N + cta_n * cta_N + cta_N,
+                                                            task_k,
+                                                            iter_k * smem_K :
+                                                            iter_k * smem_K + smem_K,
+                                                        ],
+                                                        ncta=ncta_M, cta_stride=ncta_N, size0=cta_N, size1=smem_K,
+                                                        smem_box=smem_box_B, dst=B_type, src=B_type,
+                                                    ) >> raw[:, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k]
+                                                # Each CTA arrives on read-after-write protection barriers.
+                                                # Multicast to any CTA with the same cta_m OR the same cta_n.
+                                                for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
+                                                    for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
+                                                        Arrive(cuda_async_proxy_retired) >> raw[
+                                                            cta_m, :, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k
+                                                        ] >> raw[:, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k]
+                                            with CudaWarps(name=consumer_name):
+                                                for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
+                                                    for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
+                                                        Await(raw[cta_m, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k],
+                                                              cuda_generic_and_async_proxy, 0)
+                                                        Fence(wgmma_fence_1, wgmma_fence_2)
+                                                        for ms in seq(0, M_wg_tiles, pragma_unroll=0):
+                                                            Sm90_tk_mma_row_col_zi(
+                                                                D_rmem[cta_m, cta_n, :, ms, :, :],
+                                                                A_smem[cta_m, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k,
+                                                                       ms * 64 : ms * 64 + 64, :],
+                                                                B_smem[cta_m, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k, :, :],
+                                                                iter_k == 0,
+                                                                D=D_type, A=A_type, B=B_type, N=cta_N, K=smem_K,
+                                                            )
+                                                        Arrive(wgmma_async) >> wgmma_cg[cta_m, cta_n]
+                                                        # Wait for the previous iteration's wgmma to retire, then
+                                                        # free its ring buffer slot. This if is removed by
+                                                        # cutting the loop (sched_ping_pong_cut_iter_k).
+                                                        if iter_k >= 1:
+                                                            Await(wgmma_cg[cta_m, cta_n], cuda_generic_and_async_proxy, should_be_1)
+                                                            Arrive(war_sync_tl) >> war[
+                                                                cta_m, :, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k + ring_depth - 1
+                                                            ] >> war[:, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + iter_k + ring_depth - 1]
+                                        # End iter_k loop
+
+                                        with CudaWarps(name=consumer_name):
+                                            for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
+                                                for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
+                                                    # All wgmma issued; let the other consumer start its main loop.
+                                                    Arrive(cuda_in_order) >> mma_order[cta_m, cta_n, mp + 1]
+                                                    # CUTLASS mma_tail: wait for all wgmma, free the last slot.
+                                                    Await(wgmma_cg[cta_m, cta_n], cuda_generic_and_async_proxy, 0)
+                                                    Arrive(war_sync_tl) >> war[
+                                                        cta_m, :, mp * ((K_cluster + smem_K - 1) / smem_K) + ((K_cluster + smem_K - 1) / smem_K) + ring_depth - 1
+                                                    ] >> war[:, cta_n, mp * ((K_cluster + smem_K - 1) / smem_K) + ((K_cluster + smem_K - 1) / smem_K) + ring_depth - 1]
+
+                                        # Epilogue
+                                        with CudaWarps(name=consumer_name):
+                                            for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
+                                                for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
+                                                    # Wait for the other consumer to be done with C_smem.
+                                                    Await(epi_order[cta_m, cta_n, mp], cuda_in_order, 0)
+                                                    for w in cuda_threads(0, 4, unit=cuda_warp):
+                                                        # Each warp writes a (16, cta_N) tile to SMEM.
+                                                        # This is repeated if wg_M > 64.
+                                                        for ms in seq(0, M_wg_tiles, pragma_unroll=0):
+                                                            store_smem(
+                                                                C_smem[cta_m, cta_n, mp, :,
+                                                                    ms * 64 + w * 16:
+                                                                    ms * 64 + w * 16 + 16,
+                                                                    :],
+                                                                D_rmem[cta_m, cta_n, w, ms, :, :],
+                                                            )
+                                                    # Warpgroup-wide sync + proxy fence (CUTLASS uses a named barrier).
+                                                    Arrive(cuda_in_order) >> epi_smem_ready[cta_m, cta_n, mp]
+                                                    Await(epi_smem_ready[cta_m, cta_n, mp], cuda_generic_and_async_proxy, 0)
+                                                    with CudaWarps(0, 1):
+                                                        for ns in seq(0, outer_N):
+                                                            if enable_split_k:
+                                                                Sm90_tma_reduce_add_2d(
+                                                                    C_tensorMap[
+                                                                        batch,
+                                                                        task_m * cluster_M + cta_m * cta_M + mp * wg_M :
+                                                                        task_m * cluster_M + cta_m * cta_M + mp * wg_M + wg_M,
+                                                                        task_n * cluster_N + cta_n * cta_N + ns * inner_N :
+                                                                        task_n * cluster_N + cta_n * cta_N + ns * inner_N + inner_N,
+                                                                    ],
+                                                                    C_smem[cta_m, cta_n, mp, ns, :, :],
+                                                                    dst=C_type, src=C_type, size0=wg_M, size1=inner_N,
+                                                                    smem_box=smem_box_C, swizzle=128,
+                                                                )
+                                                            else:
+                                                                Sm90_tma_store_2d(
+                                                                    C_tensorMap[
+                                                                        batch,
+                                                                        task_m * cluster_M + cta_m * cta_M + mp * wg_M :
+                                                                        task_m * cluster_M + cta_m * cta_M + mp * wg_M + wg_M,
+                                                                        task_n * cluster_N + cta_n * cta_N + ns * inner_N :
+                                                                        task_n * cluster_N + cta_n * cta_N + ns * inner_N + inner_N,
+                                                                    ],
+                                                                    C_smem[cta_m, cta_n, mp, ns, :, :],
+                                                                    dst=C_type, src=C_type, size0=wg_M, size1=inner_N,
+                                                                    smem_box=smem_box_C, swizzle=128,
+                                                                )
+                                                            tma_cg: barrier @ Sm90_TmaCommitGroup
+                                                            Arrive(tma_to_gmem_async) >> tma_cg
+                                                            Await(tma_cg, cuda_in_order, 0)
+                                                        # CUTLASS store_tail: TMA store done reading C_smem;
+                                                        # pass the C_smem token to the other consumer.
+                                                        Arrive(cuda_in_order) >> epi_order[cta_m, cta_n, mp + 1]
+    # fmt: on
+
+    gemm = sched_ping_pong_cut_iter_k(gemm)
+    gemm = handwrite_final_changes(gemm, config)
+    return gemm
 
 
-def inject_ping_pong_main_loop_bug(main_loop, config):
-    # Really hard-wired cursor movement since PAST doesn't search for Exo-GPU features.
-    loops = main_loop.find_all("for iter_k in _:_")
-    assert len(loops) == 1
-    loop_c = loops[0]
-    iter_k_body = loop_c.body()
-    assert len(iter_k_body) == 2, "expected producer and consumer block"
-    producer_ping_loop = iter_k_body[0].only_child()
-    assert producer_ping_loop.name() == "ping"
-    producer_body = producer_ping_loop.body()
+def sched_ping_pong_cut_iter_k(p):
+    """Cut each iter_k loop at 1, and remove the `if iter_k >= 1` guard
+    (false in the first loop, true in the second)."""
 
-    # There should be an Await loop, 2 TMA, an Arrive.
-    assert len(producer_body) == 4
-    await_stmt_idx = 0
-    await_loops_c = producer_body[await_stmt_idx]
-    await_c = await_loops_c.only_child(2)
-    assert await_c.name() == "war"
-    assert await_c.first_sync_tl() == None
-    assert await_c.second_sync_tl() == cuda_async_proxy_retired
-    arrive_stmt_idx = 3
-    arrive_loops_c = producer_body[arrive_stmt_idx]
-    arrive_c = arrive_loops_c.only_child(2)
-    assert arrive_c.name() == "raw"
+    def find_ifs(c, out):
+        # NB `with` contexts are also IfCursor
+        if isinstance(c, IfCursor) and str(c._impl._node.cond) == "iter_k >= 1":
+            out.append(c)
+        if isinstance(c, (IfCursor, ForCursor)):
+            for child in c.body():
+                find_ifs(child, out)
+        return out
 
-    if config.bug == GemmTestBug.ping_pong_reorder_await_war:
-        main_loop = reorder_stmts(
-            main_loop, producer_body[await_stmt_idx : await_stmt_idx + 2]
-        )
-    if config.bug == GemmTestBug.ping_pong_reorder_arrive_raw:
-        main_loop = reorder_stmts(
-            main_loop, producer_body[arrive_stmt_idx - 1 : arrive_stmt_idx + 1]
-        )
-
-    return main_loop
+    for loop_c in p.find_all("for iter_k in _:_"):
+        loop_c = p.forward(loop_c)
+        p = cut_loop(p, loop_c, 1)
+        loop_c = p.forward(loop_c)
+        if_cursors = find_ifs(loop_c, []) + find_ifs(loop_c.next(), [])
+        assert len(if_cursors) == 2
+        for if_c in if_cursors:
+            p = eliminate_dead_code(p, if_c)
+    return p
 
 
 def handwrite_coop_epilogue(config: GemmConfig):
@@ -984,117 +1138,6 @@ def handwrite_coop_epilogue(config: GemmConfig):
     return simplify(epilogue)
 
 
-def handwrite_ping_pong_epilogue(config: GemmConfig):
-    C_type = config.get_C_ScalarInfo()
-    D_type = config.get_D_ScalarInfo()
-    ncta_M = config.ncta_M
-    ncta_N = config.ncta_N
-    cta_M = config.cta_M
-    cta_N = config.cta_N
-    wg_M = perfect_div(cta_M, 2)
-    cluster_M = ncta_M * cta_M
-    cluster_N = ncta_N * cta_N
-    ring_depth = config.ring_depth
-    swizzle = config.swizzle
-
-    M_wg_tiles = perfect_div(cta_M, 128)
-    smem_box_C = config.make_smem_box_C()
-    enable_split_k = bool(config.enable_split_k)
-
-    assert config.C_major == "row", "not supported"
-    assert config.ping_pong
-
-    # Helper for staging RMEM into SMEM.
-    # The [wg_M, cta_N] logical RMEM tile has its cta_n dimension split
-    # to [wg_M, outer_N, inner_N] then re-ordered
-    # to [outer_N, wg_M, inner_N]. This is dictated by the TMA.
-    # The returned advice.instr magically does the copy from RMEM to this SMEM layout.
-    advice: CudaTkRsInstrAdvice = cuda_tk_store_rs_advice(
-        16, cta_N, dst=C_type, src=D_type, swizzle=swizzle
-    )
-    store_smem = advice.instr
-    outer_N = advice.outer_cols
-    inner_N = advice.inner_cols
-
-    # fmt: off
-    @proc
-    def epilogue(
-        C_win: [C_type][cluster_M, cluster_N],
-        D_rmem: [D_type][ncta_M, ncta_N, 2, 4, M_wg_tiles, 16, cta_N],
-    ):
-        assert stride(C_win, 1) == 1
-
-        C_barrier: barrier[ncta_M, ncta_N, 3 @ ring_buffer_by(2)] @ CudaMbarrierPreArrive(1)
-        tmp_barrier: barrier[ncta_M, ncta_N, 2 @ ring_buffer_by(2)] @ CudaMbarrierPreArrive(0)
-
-        C_smem: C_type[
-            ncta_M,
-            ncta_N,
-            2 @ ring_buffer_by(1),
-            outer_N,
-            wg_M,
-            inner_N,
-        ].ring_guarded_by(C_barrier) @ Sm90_SmemSwizzled(swizzle)
-
-        for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
-            for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                with CudaWarps(name="consumer"):
-                    for wg_m in cuda_threads(0, 2, unit=cuda_warpgroup):
-                        # Wait for "ring buffer" slot.
-                        Await(C_barrier[cta_m, cta_n, wg_m], cuda_in_order, 0)
-
-                        for w in cuda_threads(0, 4, unit=cuda_warp):
-                            # Each warp writes a (16, cta_N) tile to SMEM.
-                            # This is repeated if cta_M > 128.
-                            for ms in seq(0, M_wg_tiles, pragma_unroll=0):
-                                store_smem(
-                                    C_smem[cta_m, cta_n, wg_m, :,
-                                        ms * 64 + w * 16:
-                                        ms * 64 + w * 16 + 16,
-                                        :],
-                                    D_rmem[cta_m, cta_n, wg_m, w, ms, :, :],
-                                )
-
-                        # TODO this should be a fence.
-                        Arrive(cuda_in_order) >> tmp_barrier[cta_m, cta_n, wg_m]
-                        Await(tmp_barrier[cta_m, cta_n, wg_m], cuda_generic_and_async_proxy, 0)
-
-                        with CudaWarps(0, 1):
-                            for ns in seq(0, outer_N):
-                                if enable_split_k:
-                                    Sm90_tma_reduce_add_2d(
-                                        C_win[
-                                            cta_M * cta_m + wg_M * wg_m :
-                                            cta_M * cta_m + wg_M * wg_m + wg_M,
-                                            cta_N * cta_n + ns * inner_N :
-                                            cta_N * cta_n + ns * inner_N + inner_N,
-                                        ],
-                                        C_smem[cta_m, cta_n, wg_m, ns, :, :],
-                                        dst=C_type, src=C_type, size0=wg_M, size1=inner_N,
-                                        smem_box=smem_box_C, swizzle=128,
-                                    )
-                                else:
-                                    Sm90_tma_store_2d(
-                                        C_win[
-                                            cta_M * cta_m + wg_M * wg_m :
-                                            cta_M * cta_m + wg_M * wg_m + wg_M,
-                                            cta_N * cta_n + ns * inner_N :
-                                            cta_N * cta_n + ns * inner_N + inner_N,
-                                        ],
-                                        C_smem[cta_m, cta_n, wg_m, ns, :, :],
-                                        dst=C_type, src=C_type, size0=wg_M, size1=inner_N,
-                                        smem_box=smem_box_C, swizzle=128,
-                                    )
-                                tma_cg: barrier @ Sm90_TmaCommitGroup
-                                Arrive(tma_to_gmem_async) >> tma_cg
-                                Await(tma_cg, cuda_in_order, 0)
-
-                            # Free "ring buffer" slot.
-                            Arrive(cuda_in_order) >> C_barrier[cta_m, cta_n, wg_m + 1]
-
-    return simplify(epilogue)
-
-
 def handwrite_row_col_gemm(config: GemmConfig):
     A_type = config.get_A_ScalarInfo()
     B_type = config.get_B_ScalarInfo()
@@ -1119,12 +1162,9 @@ def handwrite_row_col_gemm(config: GemmConfig):
     D_tile_mem = Sm90_TkRmemTileD(cta_N)
 
     coop = not config.ping_pong
-    if coop:
-        main_loop = handwrite_row_col_coop_main_loop(config)
-        epilogue = handwrite_coop_epilogue(config)
-    else:
-        main_loop = handwrite_row_col_ping_pong_main_loop(config)
-        epilogue = handwrite_ping_pong_epilogue(config)
+    assert coop, "use handwrite_row_col_ping_pong_gemm"
+    main_loop = handwrite_row_col_coop_main_loop(config)
+    epilogue = handwrite_coop_epilogue(config)
 
     sync_before_epilogue = (
         coop and config.bug != GemmTestBug.coop_missing_cluster_sync_before_epilogue
@@ -1375,7 +1415,9 @@ def handwrite_gemm(config: GemmConfig, sporkbench_cases: Optional[list] = None):
     if config.A_in_rmem:
         assert config.A_major == "row" and config.B_major == "row", "not supported"
 
-    if config.B_major == "col":
+    if config.B_major == "col" and config.ping_pong:
+        gemm = handwrite_row_col_ping_pong_gemm(config)
+    elif config.B_major == "col":
         gemm = handwrite_row_col_gemm(config)
     else:
         gemm = handwrite_row_row_gemm(config)

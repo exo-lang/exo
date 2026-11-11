@@ -8,6 +8,7 @@ Tests never leave an access without a later sync (the trace only samples sync ev
 from __future__ import annotations
 
 import itertools
+import linecache
 from typing import Iterable, List
 
 import pytest
@@ -23,8 +24,12 @@ from exo.spork.timelines import (
     Sm80_cp_async_instr,
     tma_to_gmem_async_instr,
 )
+from exo.platforms.Sm90.tk_gemm_util import GemmConfig, handwrite_gemm
+from exo.spork.sync_check import SyncCheckTraceRequest
 from exo.spork.camspork_ref import (
+    AccessKind,
     AccessQuals,
+    BarrierCounts,
     ElemIdx,
     RingGuard,
     StrElemName,
@@ -33,6 +38,20 @@ from exo.spork.camspork_ref import (
     access_quals,
     check_both_fail,
     check_trace,
+    TraceEntry,
+    TracePendingAwaitRay,
+    TracePhase,
+    TraceProbe,
+    TraceVisRecord,
+    as_tids,
+    aw_union,
+    fmt_records,
+    fmt_tids,
+    ob_union,
+    obs,
+    parse_trace,
+    tids_norm,
+    write_trace_txt,
 )
 
 IN_ORDER = timelines.cuda_in_order.get_timeline_set_bits()
@@ -1569,3 +1588,449 @@ def test_probe_cursor_name_mismatch(compiler, tmp_path):
     ref = SyncEnvRef([x[0]], threads_per_task=32)
     with pytest.raises(AssertionError, match="maps to a cursor of variable g"):
         check_trace(p, ref, tmp_path, var_cursors={x: p.args()[0]})
+
+
+# =============================================================================
+# Sm90 ping-pong gemm (exo.platforms.Sm90.tk_gemm_util): probe checkpoints
+#
+# A full SyncEnvRef for the gemm would have to re-derive every TMA, wgmma and
+# multicast access, so instead we compare probe records at hand-picked sync
+# statements (found by source text + executing threads + occurrence) against
+# hand-derived expectations. The trace is computed once and shared by these tests.
+#
+# Config: 2 x 1 cluster (A not multicast, B multicast over cta_m), cta_M=128 so
+# wg_M = 64, cta_N = 64, ring_depth = 2, K_cluster = 3 * smem_K so each consumer
+# uses 3 ring slots (6 logical slots per task), M = 2 * cluster_M so 2 tasks.
+# Warps: producer 0-3, consumer0 4-7, consumer1 8-11: 384 threads per CTA, 768 per task.
+#
+# D_rmem and wgmma_cg are syntactically duplicated per consumer (the ping-pong
+# iteration is a meta-Exo loop), so the D_rmem probe is pinned to consumer0's
+# allocation with var_cursors.
+#
+# The full trace dump is written as camspork_trace.txt in the tmp_path of
+# whichever ping-pong test ran first.
+# =============================================================================
+
+A_smem = StrVarName("A_smem")
+C_smem = StrVarName("C_smem")
+D_rmem = StrVarName("D_rmem")
+epi_order = StrVarName("epi_order")
+mma_order = StrVarName("mma_order")
+epi_smem_ready = StrVarName("epi_smem_ready")
+wgmma_cg = StrVarName("wgmma_cg")
+tma_cg = StrVarName("tma_cg")
+
+PP_PROBES = [
+    A_smem[0, 0, 0, 0, 0],
+    A_smem[0, 0, 1, 0, 0],
+    D_rmem[0, 0, 0, 0, 0, 0],  # consumer0's (var_cursors)
+    C_smem[0, 0, 0, 0, 0, 0],
+    C_smem[0, 0, 1, 0, 0, 0],
+    epi_order[0, 0, 0],
+    epi_order[0, 0, 1],
+    epi_order[0, 0, 2],
+    mma_order[0, 0, 1],
+]
+_pp_trace_cache = {}
+
+# Thread sets, CTA 0 and CTA 1 of task 0 (add 768 for task 1)
+PP_P0, PP_P1 = ((0, 32),), ((384, 416),)  # producer warp
+PP_C0_0, PP_C0_1 = ((128, 256),), ((512, 640),)  # consumer0 warpgroup
+PP_C1_0 = ((256, 384),)  # consumer1 warpgroup
+PP_C0_0_W0, PP_C1_0_W0 = ((128, 160),), ((256, 288),)  # warp issuing the TMA store
+
+PP_SMEM_MASK = Sm90_SmemSwizzled(128).make_qual_tl_mask()
+PP_RMEM_MASK = Sm90_TkRmemTileD(64).make_qual_tl_mask()
+Q_RAM = timelines.cuda_in_order_ram_qual
+Q_RMEM = timelines.cuda_in_order_rmem_qual
+Q_RETIRED = timelines.cuda_async_proxy_retired_qual
+Q_TMA_SMEM = timelines.tma_to_smem_async_qual
+Q_TMA_GMEM = timelines.tma_to_gmem_async_qual
+Q_WGMMA_SMEM = timelines.wgmma_async_smem_qual
+Q_WGMMA_D = timelines.wgmma_async_rmem_d_qual
+Q_WGMMA_FENCED = timelines.wgmma_rmem_fenced_qual
+
+
+def tids_plus(*tid_sets):
+    return tids_norm(iv for t in tid_sets for iv in t)
+
+
+def pp_rec(mask, ob, aw=()) -> TraceVisRecord:
+    """ob = [(qual, tids)], aw = {barrier StrElemName: min arrive count}"""
+    ob_set = frozenset()
+    for q, tids in ob:
+        ob_set = ob_union(ob_set, obs(tids, q.as_bit()))
+    aw_set = aw_union(
+        frozenset(),
+        frozenset(TracePendingAwaitRay(bar, z) for bar, z in dict(aw).items()),
+    )
+    return TraceVisRecord(ob_set, aw_set, mask)
+
+
+def ping_pong_trace(tmp_path) -> List[TraceEntry]:
+    if "entries" not in _pp_trace_cache:
+        config = GemmConfig(
+            ncta_M=2,
+            ncta_N=1,
+            cta_M=128,
+            cta_N=64,
+            ring_depth=2,
+            B_major="col",
+            ping_pong=True,
+        )
+        gemm = handwrite_gemm(config)  # Includes a sync_check without tracing
+        request = SyncCheckTraceRequest(
+            str(tmp_path / "camspork_trace.jsonl"),
+            [(str(elem.var), elem.idx) for elem in PP_PROBES],
+            # First D_rmem alloc in program order is consumer0's (mp = 0).
+            {str(D_rmem): gemm.find("D_rmem : _")},
+        )
+        smem_K = config.make_smem_K()
+        gemm.sync_check(
+            _sync_check_trace=request,
+            L=1,
+            M=2 * 2 * 128,
+            N=64,
+            K_split=1,
+            K_cluster=3 * smem_K,
+        )
+        entries = parse_trace(request.filename, request.stmt_srcinfo)
+        qual_names = [str(q) for q in timelines.Qual_tl.get_all()]
+        write_trace_txt(str(tmp_path / "camspork_trace.txt"), entries, qual_names)
+        _pp_trace_cache["entries"] = entries
+        _pp_trace_cache["qual_names"] = qual_names
+    return _pp_trace_cache["entries"]
+
+
+def pp_src_text(src: str) -> str:
+    # src is "file:line:col:(sN)"; the source line of the statement, stripped.
+    filename, line = src.split(":")[:2]
+    return linecache.getline(filename, int(line)).strip()
+
+
+def pp_entry(entries, phase: TracePhase, src_prefix, tids, nth=0) -> TraceEntry:
+    """nth trace entry (phase) whose statement source line starts with src_prefix,
+    executed by exactly the threads tids."""
+    tids = as_tids(tids)
+    matches = [
+        e
+        for e in entries
+        if e.phase == phase
+        and e.tids == tids
+        and pp_src_text(e.src).startswith(src_prefix)
+    ]
+    assert len(matches) > nth, f"{phase.value} {src_prefix} {fmt_tids(tids)} #{nth}"
+    return matches[nth]
+
+
+def pp_probe(entry: TraceEntry, elem: StrElemName) -> TraceProbe:
+    for p in entry.probes:
+        if p.elem == elem:
+            return p
+    assert 0, f"{elem} not probed"
+
+
+def pp_where(entry: TraceEntry) -> str:
+    return (
+        f"{entry.phase.value} {entry.stmt.value} @ {entry.src}\n"
+        f"  {pp_src_text(entry.src)}"
+    )
+
+
+def pp_check(errors, entry: TraceEntry, elem: StrElemName, kind: AccessKind, expected):
+    """Compare entry's records of the given kind for probe elem"""
+    actual = pp_probe(entry, elem).records[kind]
+    expected = None if expected is None else frozenset(expected)
+    if actual != expected:
+        qual_names = _pp_trace_cache["qual_names"]
+        sep = "\n              "
+        errors.append(
+            f"{pp_where(entry)}\n"
+            f"  {elem} {kind.value}\n"
+            f"    actual:   {fmt_records(actual, qual_names, sep)}\n"
+            f"    expected: {fmt_records(expected, qual_names, sep)}"
+        )
+
+
+def pp_check_counts(errors, entry: TraceEntry, elem: StrElemName, arrive, await_):
+    actual = pp_probe(entry, elem).barrier_counts
+    expected = BarrierCounts(arrive, await_)
+    if actual != expected:
+        errors.append(f"{pp_where(entry)}\n  {elem} {actual} != expected {expected}")
+
+
+AFTER, BEFORE = TracePhase.AFTER, TracePhase.BEFORE
+MUTATE, READ = AccessKind.MUTATE, AccessKind.READ
+AWAIT_CG_1 = "Await(wgmma_cg[cta_m, cta_n], cuda_generic_and_async_proxy, should_be_1)"
+AWAIT_CG_0 = "Await(wgmma_cg[cta_m, cta_n], cuda_generic_and_async_proxy, 0)"
+
+
+def test_ping_pong_smem_ring(compiler, tmp_path):
+    """A_smem ring slots 0 and 1 of CTA 0, task 0 (consumer0, iter_k = 0, 1).
+
+    Shows the wgmma pipelining lag: slot k is released (war Arrive) only after the
+    Await(wgmma_cg, 1) of iteration k + 1, which retires slot k's wgmma but not
+    slot k + 1's.
+
+    """
+    entries = ping_pong_trace(tmp_path)
+    errors = []
+    slot0, slot1 = A_smem[0, 0, 0, 0, 0], A_smem[0, 0, 1, 0, 0]
+    M = PP_SMEM_MASK
+    cg0 = wgmma_cg[0, 0]
+    # Managed ring buffer guard: the multicast group of war[0, 0, 0] is
+    # {war[0, 0, 0], war[1, 0, 0]} (consumer Arrive >> war[cta_m, :] >> war[:, cta_n]),
+    # each with expected arrive count 2 CTAs x 128 consumer threads = 256.
+    alloc_aw = {war[0, 0, 0]: 255, war[1, 0, 0]: 255}
+    # Both producers' Await on war[*, 0, 0] (cuda_async_proxy_retired) fulfil the guard.
+    alloc_ob = [(Q_RETIRED, tids_plus(PP_P0, PP_P1))]
+    # TMA (out-of-order) observers widened to aligned groups of 256 threads (gOooOpt;
+    # nothing Arrives with tma_to_smem_async, so TAG is the threads-per-task alignment).
+    tma_ob = [(Q_TMA_SMEM, ((0, 256),))]
+    raw_aw = {raw[0, 0, 0]: 0, raw[1, 0, 0]: 0}
+
+    # Producer's raw Arrive (multicast to raw[0, :, 0] and raw[:, 0, 0]) adds pending
+    # awaits to the alloc record; the TMA record only has its trailing barrier raw[0, 0, 0].
+    e = pp_entry(entries, AFTER, "Arrive(cuda_async_proxy_retired) >> raw[", PP_P0)
+    pp_check(
+        errors,
+        e,
+        slot0,
+        MUTATE,
+        [
+            pp_rec(M, alloc_ob, {**alloc_aw, **raw_aw}),
+            pp_rec(M, tma_ob, {raw[0, 0, 0]: 0}),
+        ],
+    )
+    pp_check(errors, e, slot0, READ, [])
+
+    # Consumer0 Awaits raw[0, 0, 0] (cuda_generic_and_async_proxy).
+    c0_visible = [(Q_RAM, PP_C0_0), (Q_RETIRED, PP_C0_0)]
+    e = pp_entry(entries, AFTER, "Await(raw[cta_m, cta_n", PP_C0_0)
+    pp_check(
+        errors,
+        e,
+        slot0,
+        MUTATE,
+        [
+            pp_rec(M, alloc_ob + c0_visible, {**alloc_aw, **raw_aw}),
+            pp_rec(M, tma_ob + c0_visible, {raw[0, 0, 0]: 0}),
+        ],
+    )
+
+    # wgmma reads slot 0 (wgmma_async_smem), then the commit group Arrive.
+    e = pp_entry(entries, AFTER, "Arrive(wgmma_async) >> wgmma_cg", PP_C0_0)
+    pp_check(errors, e, slot0, READ, [pp_rec(M, [(Q_WGMMA_SMEM, PP_C0_0)], {cg0: 0})])
+
+    # iter_k = 1: Await(wgmma_cg, 1) retires the iter_k = 0 wgmma (commit group 0) only.
+    e = pp_entry(entries, AFTER, AWAIT_CG_1, PP_C0_0)
+    wgmma_read = [(Q_WGMMA_SMEM, PP_C0_0)]
+    pp_check(errors, e, slot0, READ, [pp_rec(M, wgmma_read + c0_visible, {cg0: 0})])
+    pp_check(errors, e, slot1, READ, [pp_rec(M, wgmma_read, {cg0: 1})])
+
+    # Release slot 0: Arrive >> war[0, :, 2] >> war[:, 0, 2] (slot 2 is the next use
+    # of the same physical buffer). Slot 1 is still in flight, so not released.
+    e = pp_entry(entries, AFTER, "Arrive(war_sync_tl) >> war[", PP_C0_0)
+    release0 = {war[0, 0, 2]: 0, war[1, 0, 2]: 0}
+    pp_check(
+        errors,
+        e,
+        slot0,
+        READ,
+        [pp_rec(M, wgmma_read + c0_visible, {cg0: 0, **release0})],
+    )
+    pp_check(errors, e, slot1, READ, [pp_rec(M, wgmma_read, {cg0: 1})])
+
+    # iter_k = 2 releases slot 1: Arrive >> war[*, 0, 3].
+    e = pp_entry(entries, AFTER, "Arrive(war_sync_tl) >> war[", PP_C0_0, nth=1)
+    release1 = {war[0, 0, 3]: 0, war[1, 0, 3]: 0}
+    pp_check(
+        errors,
+        e,
+        slot1,
+        READ,
+        [pp_rec(M, wgmma_read + c0_visible, {cg0: 1, **release1})],
+    )
+    assert_no_errors(errors)
+
+
+def test_ping_pong_wgmma_accumulator(compiler, tmp_path):
+    """consumer0's D_rmem (CTA 0, task 0): one record per wgmma (iter_k = 0, 1, 2).
+
+    wgmma_fence (start of the next iteration) adds wgmma_rmem_fenced, which lets the
+    next wgmma accumulate into the in-flight registers. Await(wgmma_cg, 1) makes
+    one more record visible to cuda_in_order each iteration; the mma tail
+    Await(wgmma_cg, 0) makes all of them visible before the epilogue reads D_rmem.
+
+    """
+    entries = ping_pong_trace(tmp_path)
+    errors = []
+    D = D_rmem[0, 0, 0, 0, 0, 0]
+    M = PP_RMEM_MASK
+    cg0 = wgmma_cg[0, 0]
+    wgmma_d = [(Q_WGMMA_D, PP_C0_0)]
+    fenced = [(Q_WGMMA_FENCED, PP_C0_0)]
+    rmem = [(Q_RMEM, PP_C0_0)]
+
+    e = pp_entry(entries, AFTER, "Arrive(wgmma_async) >> wgmma_cg", PP_C0_0)
+    pp_check(errors, e, D, MUTATE, [pp_rec(M, wgmma_d, {cg0: 0})])
+
+    e = pp_entry(entries, AFTER, "Fence(wgmma_fence_1", PP_C0_0, nth=1)
+    pp_check(errors, e, D, MUTATE, [pp_rec(M, wgmma_d + fenced, {cg0: 0})])
+
+    e = pp_entry(entries, AFTER, "Arrive(wgmma_async) >> wgmma_cg", PP_C0_0, nth=1)
+    pp_check(
+        errors,
+        e,
+        D,
+        MUTATE,
+        [pp_rec(M, wgmma_d + fenced, {cg0: 0}), pp_rec(M, wgmma_d, {cg0: 1})],
+    )
+
+    e = pp_entry(entries, AFTER, AWAIT_CG_1, PP_C0_0)
+    pp_check(
+        errors,
+        e,
+        D,
+        MUTATE,
+        [pp_rec(M, wgmma_d + fenced + rmem, {cg0: 0}), pp_rec(M, wgmma_d, {cg0: 1})],
+    )
+
+    # Pass the mma_order token to consumer1 while the iter_k = 2 wgmma is still in flight
+    # (CUTLASS mma vs mma_tail); the in-flight record doesn't get the pending await.
+    token = {mma_order[0, 0, 1]: 0}
+    retired = wgmma_d + fenced + rmem
+    e = pp_entry(entries, AFTER, "Arrive(cuda_in_order) >> mma_order", PP_C0_0)
+    pp_check(
+        errors,
+        e,
+        D,
+        MUTATE,
+        [
+            pp_rec(M, retired, {cg0: 0, **token}),
+            pp_rec(M, retired, {cg0: 1, **token}),
+            pp_rec(M, wgmma_d, {cg0: 2}),
+        ],
+    )
+
+    e = pp_entry(entries, AFTER, AWAIT_CG_0, PP_C0_0)
+    pp_check(
+        errors,
+        e,
+        D,
+        MUTATE,
+        [
+            pp_rec(M, retired, {cg0: 0, **token}),
+            pp_rec(M, retired, {cg0: 1, **token}),
+            pp_rec(M, wgmma_d + rmem, {cg0: 2}),
+        ],
+    )
+    pp_check(errors, e, D, READ, [])
+    assert_no_errors(errors)
+
+
+def test_ping_pong_epilogue_handoff(compiler, tmp_path):
+    """C_smem is one physical buffer shared by both consumers (logical slots 0, 1,
+    ring depth 1), handed off with the epi_order token. Each consumer's TMA store
+    retires (Await tma_cg) before it passes the token. Task 1's consumer0 starts
+    with epi_order[0] pre-arrived: its dependency on task 0's consumer1 (Arrive on
+    epi_order[2], the same physical mbarrier) is not traced; it relies on task 0's
+    free check of C_smem[1] (pending await on epi_order[2]).
+
+    """
+    entries = ping_pong_trace(tmp_path)
+    errors = []
+    slot0, slot1 = C_smem[0, 0, 0, 0, 0, 0], C_smem[0, 0, 1, 0, 0, 0]
+    M = PP_SMEM_MASK
+    tma_cg0 = tma_cg[()]
+    # Guard epi_order[mp] (expected arrive count 32: one warp Arrives after its TMA store)
+    alloc0_aw = {epi_order[0, 0, 0]: 31}
+    alloc1_aw = {epi_order[0, 0, 1]: 31}
+
+    # Task 0, consumer0: epi_order[0] is pre-arrived.
+    e = pp_entry(entries, AFTER, "Await(epi_order[cta_m, cta_n, mp]", PP_C0_0)
+    pp_check(errors, e, slot0, MUTATE, [pp_rec(M, [(Q_RAM, PP_C0_0)], alloc0_aw)])
+    pp_check_counts(errors, e, epi_order[0, 0, 0], 32, 1)
+    pp_check_counts(errors, e, epi_order[0, 0, 1], 0, 0)
+    pp_check_counts(errors, e, epi_order[0, 0, 2], 0, 0)
+
+    # RMEM -> SMEM by 4 warps, then warpgroup sync (+ proxy fence) via epi_smem_ready.
+    c0_retired = [(Q_RAM, PP_C0_0), (Q_RETIRED, PP_C0_0)]
+    ready0 = {epi_smem_ready[0, 0, 0]: 0}
+    e = pp_entry(entries, AFTER, "Await(epi_smem_ready", PP_C0_0)
+    pp_check(
+        errors,
+        e,
+        slot0,
+        MUTATE,
+        [pp_rec(M, c0_retired, {**alloc0_aw, **ready0}), pp_rec(M, c0_retired, ready0)],
+    )
+
+    # Warp 0 of consumer0 issues the TMA store, which reads C_smem (out-of-order;
+    # tma_cg Arrive is per warp, so TAG = 32).
+    e = pp_entry(entries, AFTER, "Arrive(tma_to_gmem_async)", PP_C0_0_W0)
+    pp_check(
+        errors, e, slot0, READ, [pp_rec(M, [(Q_TMA_GMEM, PP_C0_0_W0)], {tma_cg0: 0})]
+    )
+    # Pass the token after the (second, last) TMA store retires.
+    e = pp_entry(entries, AFTER, "Arrive(cuda_in_order) >> epi_order", PP_C0_0_W0)
+    pass1 = {epi_order[0, 0, 1]: 0}
+    pp_check(
+        errors,
+        e,
+        slot0,
+        MUTATE,
+        [
+            pp_rec(M, c0_retired, {**alloc0_aw, **ready0, **pass1}),
+            pp_rec(M, c0_retired, {**ready0, **pass1}),
+        ],
+    )
+    tma_read0 = [(Q_TMA_GMEM, PP_C0_0_W0), (Q_RAM, PP_C0_0_W0)]
+    pp_check(errors, e, slot0, READ, [pp_rec(M, tma_read0, {tma_cg0: 0, **pass1})])
+    pp_check_counts(errors, e, epi_order[0, 0, 1], 32, 0)
+
+    # Consumer1 gets the token; C_smem[1]'s guard is fulfilled.
+    e = pp_entry(entries, AFTER, "Await(epi_order[cta_m, cta_n, mp]", PP_C1_0)
+    pp_check(errors, e, slot1, MUTATE, [pp_rec(M, [(Q_RAM, PP_C1_0)], alloc1_aw)])
+    pp_check_counts(errors, e, epi_order[0, 0, 1], 32, 1)
+
+    # Consumer1 passes the token back (epi_order[2]): C_smem[1]'s free-on-arrive barrier.
+    e = pp_entry(entries, AFTER, "Arrive(cuda_in_order) >> epi_order", PP_C1_0_W0)
+    c1_retired = [(Q_RAM, PP_C1_0), (Q_RETIRED, PP_C1_0)]
+    ready1 = {epi_smem_ready[0, 0, 1]: 0}
+    pass2 = {epi_order[0, 0, 2]: 0}
+    pp_check(
+        errors,
+        e,
+        slot1,
+        MUTATE,
+        [
+            pp_rec(M, c1_retired, {**alloc1_aw, **ready1, **pass2}),
+            pp_rec(M, c1_retired, {**ready1, **pass2}),
+        ],
+    )
+    tma_read1 = [(Q_TMA_GMEM, PP_C1_0_W0), (Q_RAM, PP_C1_0_W0)]
+    pp_check(errors, e, slot1, READ, [pp_rec(M, tma_read1, {tma_cg0: 0, **pass2})])
+    pp_check_counts(errors, e, epi_order[0, 0, 2], 32, 0)
+
+    # Task 1, consumer0: fresh allocation, epi_order[0] pre-arrived again.
+    c0_task1 = ((768 + 128, 768 + 256),)
+    e = pp_entry(entries, AFTER, "Await(epi_order[cta_m, cta_n, mp]", c0_task1)
+    pp_check(errors, e, slot0, MUTATE, [pp_rec(M, [(Q_RAM, c0_task1)], alloc0_aw)])
+    pp_check(errors, e, slot0, READ, [])
+    pp_check_counts(errors, e, epi_order[0, 0, 0], 32, 1)
+    pp_check_counts(errors, e, epi_order[0, 0, 2], 0, 0)
+    assert_no_errors(errors)
+
+
+def test_ping_pong_mma_order(compiler, tmp_path):
+    """mma_order token counts: each consumer warpgroup (128 threads) Arrives once."""
+    entries = ping_pong_trace(tmp_path)
+    errors = []
+    token = mma_order[0, 0, 1]
+    e = pp_entry(entries, BEFORE, "Await(mma_order[cta_m, cta_n, mp]", PP_C1_0)
+    pp_check_counts(errors, e, token, 128, 0)
+    pp_check(errors, e, token, MUTATE, [])
+    e = pp_entry(entries, AFTER, "Await(mma_order[cta_m, cta_n, mp]", PP_C1_0)
+    pp_check_counts(errors, e, token, 128, 1)
+    assert_no_errors(errors)
