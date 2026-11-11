@@ -2076,7 +2076,7 @@ class Alpha_Rename(LoopIR_Rewrite):
                 bar_expr = s.barriers[0]
                 new_name = bar_expr.name.copy()
                 self.env[bar_expr.name] = new_name
-                return s.update(barriers=[bar_expr.update(name=new_name)])
+                return [s.update(barriers=[bar_expr.update(name=new_name)])]
         elif isinstance(s, LoopIR.Alloc):
             s2 = super().map_s(s)
             assert s.name not in self.env

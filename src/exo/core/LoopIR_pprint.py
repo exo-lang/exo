@@ -518,7 +518,12 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return [f"{indent}pass"]
 
     elif isinstance(stmt, LoopIR.SyncStmt):
-        s = f"{indent}{stmt.sync_type.format_stmt(stmt.barriers)}"
+        # Fence's barriers[0] is an internal name that format_stmt doesn't print.
+        if stmt.sync_type.is_split():
+            barrier_strs = [_print_expr(e, env) for e in stmt.barriers]
+        else:
+            barrier_strs = []
+        s = f"{indent}{stmt.sync_type.format_stmt(barrier_strs)}"
         # For debugging, show hidden Sym of Fence (tricky case in Alpha_rename)
         # if not stmt.sync_type.is_split():
         #     assert len(stmt.barriers) == 1

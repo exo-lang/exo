@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import ParseFragmentError, proc, DRAM, Procedure, config
+from exo import ParseFragmentError, proc, DRAM, Procedure, config, ring_buffer_by
 import exo.scalars
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
@@ -2003,6 +2003,30 @@ def test_simple_unroll3():
         SchedulingError, match="expected loop 'i' to have constant bounds"
     ):
         bar = unroll_loop(bar, "i")
+
+
+def test_unroll_alloc_and_sync(golden):
+    """Each unrolled copy gets its own allocations, and sync statements
+    (including Fence, which has a hidden barrier Sym) are renamed too.
+    The golden checks that Arrive/Await print the renamed barrier (bar_1)."""
+
+    @proc
+    def bar(x: f32[256] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                for i in seq(0, 2):
+                    A: f32[128] @ CudaSmemLinear
+                    bar: barrier[1 @ ring_buffer_by(1)] @ CudaMbarrier
+                    for t in cuda_threads(0, 128):
+                        A[t] = x[i * 128 + t]
+                    Arrive(cuda_in_order, 1) >> bar[0]
+                    Await(bar[0], cuda_in_order, 0)
+                    for t in cuda_threads(0, 128):
+                        x[i * 128 + t] = A[127 - t]
+                    Fence(cuda_in_order, cuda_in_order)
+
+    bar = unroll_loop(bar, "i")
+    assert str(bar) == golden
 
 
 def test_simple_inline(golden):
