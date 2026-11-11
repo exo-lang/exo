@@ -2,11 +2,12 @@
 
 Each test pairs an Exo proc (traced through sync_check/camspork) with a hand-written
 reference (camspork_ref.SyncEnvRef), excut-style: thread IDs are computed by hand.
-Scope for now: no multi-dimensional tasks.
 Tests never leave an access without a later sync (the trace only samples sync events).
 """
 
 from __future__ import annotations
+
+import itertools
 
 import pytest
 
@@ -576,6 +577,7 @@ def mkref_read_then_reduce(n_tasks, only_task0_reads):
     ref = SyncEnvRef(
         [("g", (0, 0)), ("g", (7, 7)), ("smem", (0, 0)), ("cg", ())],
         threads_per_task=32,
+        task_shape=(n_tasks,),
     )
     generic_and_async = timelines.cuda_generic_and_async_proxy.get_timeline_set_bits()
     tma_L1 = timelines.tma_to_gmem_async.get_timeline_set_bits()
@@ -587,7 +589,7 @@ def mkref_read_then_reduce(n_tasks, only_task0_reads):
     ref.alloc("g", (8, 8))
 
     def task_body(task):
-        base = task * 32
+        base = ref.task_threads(task)[0][0]
         tt = ref.task_threads(task)
         ref.alloc("smem", (8, 8))
         for m in range(8):
@@ -1447,3 +1449,61 @@ def test_smem_ring_cross_4cta(compiler, tmp_path):
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
     assert_no_errors(check_trace(mkproc_smem_ring_cross_4cta(), ref, tmp_path))
+
+
+# =============================================================================
+# Multi-dimensional cuda_tasks: camspork's task_index is the lexicographic position
+# of the task in the loop nest (SyncEnvRef task_shape).
+# =============================================================================
+
+TASKS_2D = (2, 3)
+
+
+def mkproc_tasks_2d():
+    M, N = TASKS_2D
+
+    @proc
+    def proc_tasks_2d(g: f32[M, N, 32] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=32):
+            for tm in cuda_tasks(0, M):
+                for tn in cuda_tasks(0, N):
+                    for t in cuda_threads(0, 32):
+                        g[tm, tn, t] = 0
+                    Fence(cuda_in_order, cuda_in_order)
+
+    return proc_tasks_2d
+
+
+def mkref_tasks_2d(task_order):
+    """task_order: the reference's assumed linearization (to show the trace checks it)."""
+    M, N = TASKS_2D
+    probes = [("g", (0, 2, 0)), ("g", (1, 0, 31)), ("g", (1, 2, 5))]
+    ref = SyncEnvRef(probes, threads_per_task=32, task_shape=task_order((M, N)))
+    ref.alloc("g", (M, N, 32))
+
+    def task_body(tm, tn):
+        task = task_order((tm, tn))
+        base = ref.task_threads(task)[0][0]
+        for t in range(32):
+            ref.mutate("g", (tm, tn, t), [base + t], **gmem_access_kw(convergent=True))
+        ref.fence(ref.task_threads(task), IN_ORDER, IN_ORDER)
+
+    def device_body():
+        for tm, tn in itertools.product(range(M), range(N)):
+            ref.device_task(task_order((tm, tn)), lambda: task_body(tm, tn), depth=1)
+
+    ref.cuda_device_function(device_body)
+    return ref
+
+
+def test_tasks_2d(compiler, tmp_path):
+    ref = mkref_tasks_2d(lambda idx: idx)
+    assert_no_errors(check_trace(mkproc_tasks_2d(), ref, tmp_path))
+
+
+def test_tasks_2d_transposed_negative(compiler, tmp_path):
+    """Reference assumes column-major task IDs: the trace must disagree."""
+    ref = mkref_tasks_2d(lambda idx: idx[::-1])
+    errors = check_trace(mkproc_tasks_2d(), ref, tmp_path)
+    assert errors
+    assert "threads" in errors[0]

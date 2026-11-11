@@ -7,7 +7,9 @@ marked DEVIATION or OPT. Thread IDs are hand-computed by the test author (like e
 reference generators), so the Exo -> camspork lowering of parallel loops is checked
 independently.
 
-Current scope: no multi-dimensional tasks.
+Task IDs: a (possibly multi-dimensional) cuda_tasks loop nest is linearized in
+lexicographic order, as camspork's lazy task_index does (every device task bumps it
+once, through at least its task-end JoinThreads).
 Managed ring buffers and mbarriers follow amspork3 SmemAppendix.tex (allocTrDetail /
 freeTrDetail); freeTrDetail is only observable through pass/fail of the free check.
 Atomics follow the spec (Tid x Q_atom, masked; needs exo 7c82d4a0's QtlMask).
@@ -111,7 +113,8 @@ Representation (in memory)
 --------------------------
 
   tids       Tids: sorted, merged tuple of [lo, hi) intervals. tid is camspork's linearized
-             task_index * threads_per_task + local tid (papered-over task IDs). Local tids
+             task_index * threads_per_task + local tid, task_index being the lexicographic
+             position of the task in the cuda_tasks loop nest (task_shape). Local tids
              are numbered by CTA rank in the cluster, then thread index in the CTA.
              All threads (and camspork's "CPU") are [0, CPU_HI).
   Ob         frozenset of (qual_bit_index, Tids): observers Tids x {q}, one entry per q
@@ -328,9 +331,13 @@ class SyncEnvRef:
 
     all_threads: Tids = ((0, CPU_HI),)  # amspork3 Tid; camspork's "CPU" cuboid
 
-    def __init__(self, probes, threads_per_task: int):
+    def __init__(self, probes, threads_per_task: int, task_shape: tuple = (1,)):
+        """task_shape: iteration counts of the cuda_tasks loop nest, outermost first.
+        Methods taking `task` accept an index tuple into task_shape, or an int for a 1-D nest.
+        """
         self.probes = [(var, tuple(idx)) for var, idx in probes]
         self.threads_per_task = threads_per_task
+        self.task_shape = tuple(task_shape)
         # (var, idx) -> {"mutate": [VisRecord], "read": [VisRecord]}
         self.env: Dict[Tuple[str, tuple], Dict[str, List[VisRecord]]] = {}
         self.shapes: Dict[str, tuple] = {}
@@ -341,11 +348,25 @@ class SyncEnvRef:
         self.barriers = Barriers()
         self.trace: List[dict] = []
 
-    def tids(self, lo: int, hi: int, task: int = 0) -> Tids:
-        base = task * self.threads_per_task
+    def task_linear_index(self, task) -> int:
+        """Task index tuple (or int, for a 1-D nest) -> camspork task_index (lexicographic)."""
+        task_idx = (task,) if isinstance(task, int) else tuple(task)
+        assert len(task_idx) == len(self.task_shape), (task_idx, self.task_shape)
+        linear = 0
+        for i, n in zip(task_idx, self.task_shape):
+            assert 0 <= i < n, (task_idx, self.task_shape)
+            linear = linear * n + i
+        return linear
+
+    def task_idxs(self) -> List[tuple]:
+        """All task index tuples, in camspork's (lexicographic) execution order."""
+        return list(itertools.product(*(range(n) for n in self.task_shape)))
+
+    def tids(self, lo: int, hi: int, task=0) -> Tids:
+        base = self.task_linear_index(task) * self.threads_per_task
         return ((base + lo, base + hi),)
 
-    def task_threads(self, task: int = 0) -> Tids:
+    def task_threads(self, task=0) -> Tids:
         return self.tids(0, self.threads_per_task, task)
 
     # *** Allocation ***
@@ -734,7 +755,7 @@ class SyncEnvRef:
         self.join_threads(self.all_threads, depth=depth + 1)
         self.fence(self.all_threads, q_stream, q_stream, depth=depth + 1)
 
-    def device_task(self, task: int, body, *, depth=0):
+    def device_task(self, task, body, *, depth=0):
         """Body of the inner-most cuda_tasks loop. DEVIATION (camspork lowering): JoinThreads by the task's threads at the end."""
         body()
         self.join_threads(self.task_threads(task), depth=depth + 1)
