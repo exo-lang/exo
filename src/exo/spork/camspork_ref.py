@@ -7,7 +7,9 @@ marked DEVIATION or OPT. Thread IDs are hand-computed by the test author (like e
 reference generators), so the Exo -> camspork lowering of parallel loops is checked
 independently.
 
-Current scope: no mbarriers, managed ring buffers, or multi-dimensional tasks.
+Current scope: no multi-dimensional tasks.
+Managed ring buffers and mbarriers follow amspork3 SmemAppendix.tex (allocTrDetail /
+freeTrDetail); freeTrDetail is only observable through pass/fail of the free check.
 Atomics follow the spec (Tid x Q_atom, masked; needs exo 7c82d4a0's QtlMask).
 The trace only samples sync statements, so a test must never leave an access without
 a later sync (otherwise the access is invisible).
@@ -30,7 +32,7 @@ Typical test (tests/cuda/test_camspork_trace.py)
 
         def task_body():
             ref.alloc("x", (2, 32))
-            ref.mutate("x", (w, t), [w * 32 + t], **qual_info(CudaSmemLinear, cuda_in_order_instr,
+            ref.mutate("x", (w, t), [w * 32 + t], **qual_access_kw(CudaSmemLinear, cuda_in_order_instr,
                                                              convergent=True))
             ref.fence(task, L1_bits, L2_bits)
             ...
@@ -53,13 +55,18 @@ Typical test (tests/cuda/test_camspork_trace.py)
   executes them. That includes the implicit ones: cuda_device_function() emits the
   C-CudaDeviceFunction Fences plus the device-end JoinThreads, and device_task() emits
   the task-end JoinThreads.
-* Access arguments come from Exo's qual-tl tables via qual_info(mem, instr_tl); those
+* Access arguments come from Exo's qual-tl tables via qual_access_kw(mem, instr_tl); those
   tables are configuration, not under test. Convergence follows sync_check.py:
   Assign/Reduce always convergent; expression reads convergent iff one thread executes
   them; instr args use the initial qual-tl's default (out-of-order ones also take tag=TAG).
 * Windows: access(..., extent=...) applies the access to each element independently.
 * Barriers: alloc_barrier/free_barrier, arrive/await_ by "name[idx]"; identity is per
   allocation (each loop iteration's allocation is a new barrier).
+* mbarriers: alloc_mbarrier (always a managed ring buffer guarding itself). Unlike other
+  barriers, an mbarrier array has its own sync env: arrive/await_ first do a read access
+  of it (cuda_mbarrier_qual; Arrive: non-convergent, every multicast target; Await:
+  convergent, home barrier only), as sync_check.py lowers them.
+* SMEM data ring buffers: alloc(..., ring=RingGuard(...)) / free(var).
 * Sync statements record trace entries with "src" = the calling Python line; helpers
   pass depth= so entries point at the mkref line that called them.
 
@@ -89,7 +96,9 @@ One JSON line per sync statement phase:
 
     record = {"ob": [[tid_lo, tid_hi, qual_bits], ...],   observers (tid_hi exclusive)
               "aw": [["name[idx]", arrive_count], ...],   pending awaits
-              "mask": qual_tl_mask, "flags": 2 = vis_record_freed_flag}
+              "mask": qual_tl_mask, "flags": camspork vis_record_before_alloc_flag}
+
+The reference ignores "flags" (it only names the use_before_alloc hazard).
 
 Comparison: per entry, same (phase, stmt) and thread set; per probe and kind, the SET
 of records must match (order and duplicates ignored; observers merged per qual-tl;
@@ -108,7 +117,7 @@ Representation (in memory)
   Ob         frozenset of (qual_bit_index, Tids): observers Tids x {q}, one entry per q
   Aw         frozenset of (barrier instance, min_arrive_count), at most one per barrier;
              stands for the infinite set {PendingAwait(b, z) | z >= min_arrive_count}
-  envVis     VisRecord(ob, aw, mask, freed)
+  envVis     VisRecord(ob, aw, mask)
 """
 
 from __future__ import annotations
@@ -157,7 +166,7 @@ def tids_intersects(a: Tids, b: Tids) -> bool:
     return any(lo1 < hi2 and lo2 < hi1 for lo1, hi1 in a for lo2, hi2 in b)
 
 
-def tids_split(t: Tids) -> List[Tids]:
+def tids_split_per_thread(t: Tids) -> List[Tids]:
     """Per-thread singletons (non-convergent case); only for finite GPU tid sets."""
     assert sum(hi - lo for lo, hi in t) < 1 << 20, "too many threads to split"
     return [((x, x + 1),) for lo, hi in t for x in range(lo, hi)]
@@ -194,7 +203,6 @@ class VisRecord:
     ob: Ob
     aw: Aw
     mask: int
-    freed: bool = False
 
     def mask_ob(self, ob: Ob) -> Ob:
         m = bits_to_indices(self.mask)
@@ -263,7 +271,7 @@ class Barriers:
                 f"Arrive count {self.arrive_count[bar]} != expected {E} at free of {name}"
             )
 
-    def counts(self, name: str) -> Optional[Tuple[int, int]]:
+    def arrive_await_counts(self, name: str) -> Optional[Tuple[int, int]]:
         bar = self.current.get(name)
         return None if bar is None else (self.arrive_count[bar], self.await_count[bar])
 
@@ -295,6 +303,24 @@ class Barriers:
         return (bar, self.arrive_count[bar] - N - 1)
 
 
+@dataclass(frozen=True)
+class RingGuard:
+    """Managed ring buffer of SMEM data guarded by mbarrier array `guard`
+    (.ring_guarded_by(guard)), with ring_depth on dimension ring_dim of the data.
+    guard_multicast: the multicast pattern of the Arrives on the guard (hand-computed,
+    like thread IDs), in the same format as LoopIR SyncStmt.multicasts(): one
+    BarrierExpr.multicast_flags() tuple per barrier expression (is each index an interval).
+    E.g. `>> war[m, n, k] >> war[m, :, k] >> war[:, n, k]` is
+    ((False, False, False), (False, True, False), (True, False, False)).
+    guards(x[z]) is the home guard plus, per expression, all guards that differ from it
+    only along that expression's multicast dimensions (a union, not a product)."""
+
+    guard: str
+    ring_dim: int
+    ring_depth: int
+    guard_multicast: Tuple[Tuple[bool, ...], ...] = ()
+
+
 class SyncEnvRef:
     """Reference sync env. Sync statements record before/after trace entries for
     `probes` ([(var, idx)]); "src" is the Python line of the call (depth= to skip helpers).
@@ -308,6 +334,10 @@ class SyncEnvRef:
         # (var, idx) -> {"mutate": [VisRecord], "read": [VisRecord]}
         self.env: Dict[Tuple[str, tuple], Dict[str, List[VisRecord]]] = {}
         self.shapes: Dict[str, tuple] = {}
+        self.rings: Dict[str, RingGuard] = {}  # managed ring buffers (incl. mbarriers)
+        self.mbarrier_elem_by_name: Dict[str, Tuple[str, tuple]] = (
+            {}
+        )  # "name[idx]" -> (var, idx)
         self.barriers = Barriers()
         self.trace: List[dict] = []
 
@@ -320,20 +350,41 @@ class SyncEnvRef:
 
     # *** Allocation ***
 
-    def alloc(self, var: str, shape: tuple):
+    def alloc(
+        self, var: str, shape: tuple, *, ring: Optional[RingGuard] = None, mask=0
+    ):
+        """D-Alloc. With ring: allocTrDetail for SMEM data guarded by mbarriers, i.e. a
+        mutate record (no observers, QtlMask `mask`) with PendingAwait(g, z) for
+        z >= z_eac - 1 for EACH guard g in guards(x[z]) (Awaiting any one suffices)."""
         assert var not in self.shapes, var
         self.shapes[var] = tuple(shape)
-        for idx in itertools.product(*(range(n) for n in shape)):
-            self.env[(var, idx)] = {"mutate": [], "read": []}
+        if ring is not None:
+            assert mask, "ring buffer alloc record needs the data's QtlMask"
+            self.rings[var] = ring
+        for data_idx in itertools.product(*(range(n) for n in shape)):
+            state = {"mutate": [], "read": []}
+            if ring is not None:
+                aw = self._gawait_aw(ring, data_idx)
+                state["mutate"].append(VisRecord(frozenset(), aw, mask))
+            self.env[(var, data_idx)] = state
 
     def free(self, var: str, *, check_tids=None, precondition_bits=0):
         """D-Free. With check_tids: freeTrDetail for (non-ring) SMEM, i.e.
-        TrPreAccess(mutate, x, z, {tid}, Q_pre, {}) for every element and tid."""
+        TrPreAccess(mutate, x, z, {tid}, Q_pre, {}) for every element and tid.
+        Ring buffers: freeTrDetail with gNext (see _ring_free_check)."""
         if check_tids is not None:
+            assert var not in self.rings
             for idx in itertools.product(*(range(n) for n in self.shapes[var])):
-                self._check(
-                    True, var, idx, tids_split(as_tids(check_tids)), precondition_bits
+                self._check_prior_records(
+                    True,
+                    var,
+                    idx,
+                    tids_split_per_thread(as_tids(check_tids)),
+                    precondition_bits,
                 )
+        if var in self.rings:
+            self._ring_free_check(var)
+            del self.rings[var]
         del self.shapes[var]
         for key in [k for k in self.env if k[0] == var]:
             del self.env[key]
@@ -341,24 +392,135 @@ class SyncEnvRef:
     def alloc_barrier(
         self, var: str, shape: tuple, *, ring_dim=None, pre_arrive=0, **flags
     ):
-        """Barrier variable: Barriers state only. The barrier variable's own sync env
-        (mbarriers are not sync-exempt) and its managed ring buffer are not modeled,
-        so tests must not probe mbarriers or reuse their ring slots.
+        """Barrier variable without its own sync env (commit groups, cluster sync):
+        Barriers state only. mbarriers use alloc_mbarrier.
         Pre-arrive: elements with idx[ring_dim] < pre_arrive start at the expected count.
         """
+        assert not flags.get("per_thread"), "mbarrier: use alloc_mbarrier"
+        self._alloc_barrier_state(var, shape, ring_dim, pre_arrive, flags)
+
+    def alloc_mbarrier(
+        self,
+        var: str,
+        shape: tuple,
+        *,
+        expected: int,
+        ring_dim: int,
+        ring_depth: int,
+        pre_arrive: int = 0,
+    ):
+        """mbarrier array, a managed ring buffer guarding itself (SmemAppendix "mbarrier").
+        allocTrDetail: element x_b[z_b] gets a mutate record (no observers, QtlMask =
+        {cuda_mbarrier_qual}) with PendingAwait(x_b[z_b - off], z) for z >= z_eac - 1,
+        omitted when z_b - off is out of range (first phase of each physical mbarrier).
+        """
+        assert 0 <= pre_arrive <= ring_depth
+        self._alloc_barrier_state(
+            var, shape, ring_dim, pre_arrive, dict(expected=expected, per_thread=True)
+        )
+        mb = mbarrier_qual_bit()
+        ring = RingGuard(var, ring_dim, ring_depth)
+        self.rings[var] = ring
+        for idx in itertools.product(*(range(n) for n in shape)):
+            self.mbarrier_elem_by_name[barrier_elem_name(var, idx)] = (var, idx)
+            state = {"mutate": [], "read": []}
+            prev_phase_idx = ring_shifted_idx(idx, ring_dim, -ring_depth)
+            if prev_phase_idx[ring_dim] >= 0:
+                aw = frozenset([self._pending_await_eac_minus_1(var, prev_phase_idx)])
+                state["mutate"].append(VisRecord(frozenset(), aw, mb))
+            self.env[(var, idx)] = state
+
+    def _alloc_barrier_state(self, var, shape, ring_dim, pre_arrive, flags):
         self.shapes[var] = tuple(shape)
         for idx in itertools.product(*(range(n) for n in shape)):
             pre_arrived = bool(pre_arrive) and idx[ring_dim] < pre_arrive
-            self.barriers.alloc(barrier_str(var, idx), pre_arrived=pre_arrived, **flags)
+            self.barriers.alloc(
+                barrier_elem_name(var, idx), pre_arrived=pre_arrived, **flags
+            )
 
     def free_barrier(self, var: str):
+        """Ring free check first (sync_check.py order), then the arrive count checks."""
+        if var in self.rings:
+            self._ring_free_check(var)
+            del self.rings[var]
         for idx in itertools.product(*(range(n) for n in self.shapes[var])):
-            self.barriers.free(barrier_str(var, idx))
+            self.barriers.free(barrier_elem_name(var, idx))
+            self.mbarrier_elem_by_name.pop(barrier_elem_name(var, idx), None)
+            self.env.pop((var, idx), None)
         del self.shapes[var]
+
+    # *** Managed ring buffers (SmemAppendix.tex) ***
+
+    def _pending_await_eac_minus_1(
+        self, guard_var: str, guard_idx: tuple
+    ) -> Tuple[str, int]:
+        bar = self.barriers.current[barrier_elem_name(guard_var, guard_idx)]
+        E = self.barriers.expected[bar]
+        assert E >= 1, "guard mbarrier needs an expected arrive count"
+        return (bar, E - 1)
+
+    def _multicast_guard_idxs(
+        self, ring: RingGuard, home_guard_idx: tuple
+    ) -> List[tuple]:
+        """guards(): the home guard expanded by the multicast reverse mapping."""
+        guard_shape = self.shapes[ring.guard]
+        guard_idxs = {tuple(home_guard_idx)}
+        for flags in ring.guard_multicast:
+            assert len(flags) == len(guard_shape)
+            guard_idxs.update(
+                itertools.product(
+                    *(
+                        range(n) if multicast else (i,)
+                        for i, n, multicast in zip(home_guard_idx, guard_shape, flags)
+                    )
+                )
+            )
+        return sorted(guard_idxs)
+
+    def _gawait_aw(self, ring: RingGuard, data_idx: tuple) -> Aw:
+        """gAwait(x[z]) for SMEM data: each guard of x[z], z >= z_eac - 1."""
+        home_guard_idx = data_idx[: len(self.shapes[ring.guard])]
+        return frozenset(
+            self._pending_await_eac_minus_1(ring.guard, guard_idx)
+            for guard_idx in self._multicast_guard_idxs(ring, home_guard_idx)
+        )
+
+    def _ring_free_check(self, var: str):
+        """freeTrDetail: TrPreAccess(mutate, x, z, {}, {}, {PendingAwait(g, z_eac - 1)})
+        for each g in gNext(x[z]) = guards of the next ring slot aliased to x[z]
+        (mbarrier: just x_b[z_b + off]). Skipped when that slot is out of range, which
+        only happens for a self-guarded mbarrier (the last phase of each physical mbarrier).
+        """
+        ring = self.rings[var]
+        self_guarded = ring.guard == var
+        guard_shape = self.shapes[ring.guard]
+        for idx in itertools.product(*(range(n) for n in self.shapes[var])):
+            next_home_guard_idx = ring_shifted_idx(
+                idx[: len(guard_shape)], ring.ring_dim, ring.ring_depth
+            )
+            if next_home_guard_idx[ring.ring_dim] >= guard_shape[ring.ring_dim]:
+                assert (
+                    self_guarded
+                ), f"{var}: guard {ring.guard} too short for free check"
+                continue
+            gnext_guard_idxs = (
+                [next_home_guard_idx]
+                if self_guarded
+                else self._multicast_guard_idxs(ring, next_home_guard_idx)
+            )
+            state = self.env[(var, idx)]
+            for guard_idx in gnext_guard_idxs:
+                aw_in = [self._pending_await_eac_minus_1(ring.guard, guard_idx)]
+                for r in state["mutate"] + state["read"]:
+                    if not r.syncs_with(frozenset(), aw_in):
+                        raise SyncEnvRefError(
+                            f"free_missing_arrive @ {barrier_elem_name(var, idx)}: "
+                            f"needs {barrier_elem_name(ring.guard, guard_idx)}"
+                        )
 
     # *** Access (TrPreAccess then TrPostAccess, Tr-ConvergentTid / Tr-SeparateTid) ***
 
-    def _check(self, is_mutate, var, idx, groups, precondition_bits):
+    def _check_prior_records(self, is_mutate, var, idx, groups, precondition_bits):
         state = self.env[(var, tuple(idx))]
         # mutReqs: mutate checks prior mutates and reads; read checks prior mutates.
         checked = state["mutate"] + (state["read"] if is_mutate else [])
@@ -404,11 +566,11 @@ class SyncEnvRef:
         tids = as_tids(tids)
         state = self.env[(var, tuple(idx))]
         # Pre: one TrPreAccess for all threads (convergent) or one per thread.
-        self._check(
+        self._check_prior_records(
             is_mutate,
             var,
             idx,
-            [tids] if convergent else tids_split(tids),
+            [tids] if convergent else tids_split_per_thread(tids),
             precondition_bits
             | atomic_bits,  # atomic accesses also accept atomic observers
         )
@@ -419,7 +581,10 @@ class SyncEnvRef:
             # OPT (gOooOpt): per-thread records widened to aligned groups of `tag` threads.
             assert tag == 1 or tag & (tag - 1) == 0
             post_groups = sorted(
-                {((t - t % tag, t - t % tag + tag),) for ((t, _),) in tids_split(tids)}
+                {
+                    ((t - t % tag, t - t % tag + tag),)
+                    for ((t, _),) in tids_split_per_thread(tids)
+                }
             )
         new = []
         for g in post_groups:
@@ -472,7 +637,7 @@ class SyncEnvRef:
                     "src": src,
                     "threads": threads,
                     "cuboid": None,
-                    "probes": self.snapshot(),
+                    "probes": self.probe_snapshot(),
                 }
             )
 
@@ -494,6 +659,8 @@ class SyncEnvRef:
         ob_in = obs(tids, L1)
         targets = [bar] if isinstance(bar, str) else list(bar)
         n_threads = sum(hi - lo for lo, hi in tids)
+        for t in targets:
+            self._mbarrier_access(t, tids, convergent=False)
 
         def fn():
             aw_out = self.barriers.arrive(targets, n_threads)
@@ -503,6 +670,7 @@ class SyncEnvRef:
 
     def await_(self, tids, L2: int, bar: str, N: int = 0, *, depth=0):
         tids = as_tids(tids)
+        self._mbarrier_access(bar, tids, convergent=True)
 
         def fn():
             aw_in = [self.barriers.await_(bar, N)]
@@ -511,6 +679,23 @@ class SyncEnvRef:
             )
 
         self._sync("Await", tids, fn, depth)
+
+    def _mbarrier_access(self, bar: str, tids: Tids, convergent: bool):
+        """sync_check.py models Arrive/Await on an mbarrier as a read ("concurrent
+        access is allowed") of the mbarrier array element, before the sync statement."""
+        if bar not in self.mbarrier_elem_by_name:
+            return
+        var, idx = self.mbarrier_elem_by_name[bar]
+        mb = mbarrier_qual_bit()
+        self.read(
+            var,
+            idx,
+            tids,
+            initial_bit=mb,
+            precondition_bits=mb,
+            mask=mb,
+            convergent=convergent,
+        )
 
     def join_threads(self, tids, *, depth=0):
         # DEVIATION (not in amspork3; David Zhao Akeley: matches camspork, which is assumed correct):
@@ -556,7 +741,7 @@ class SyncEnvRef:
 
     # *** Trace (same JSONL schema as camspork's exec.cpp trace_sync) ***
 
-    def snapshot(self) -> List[dict]:
+    def probe_snapshot(self) -> List[dict]:
         out = []
         for var, idx in self.probes:
             state = self.env.get((var, idx))
@@ -574,7 +759,9 @@ class SyncEnvRef:
                 p[kind] = (
                     None if state is None else [record_to_json(r) for r in state[kind]]
                 )
-            if (counts := self.barriers.counts(barrier_str(var, idx))) is not None:
+            if (
+                counts := self.barriers.arrive_await_counts(barrier_elem_name(var, idx))
+            ) is not None:
                 p["arrive_count"], p["await_count"] = counts
             out.append(p)
         return out
@@ -586,7 +773,17 @@ class SyncEnvRef:
                 f.write(json.dumps(e) + "\n")
 
 
-def barrier_str(var: str, idx) -> str:
+def mbarrier_qual_bit() -> int:
+    from .timelines import cuda_mbarrier_qual
+
+    return cuda_mbarrier_qual.as_bit()
+
+
+def ring_shifted_idx(idx: tuple, ring_dim: int, delta: int) -> tuple:
+    return tuple(i + delta if d == ring_dim else i for d, i in enumerate(idx))
+
+
+def barrier_elem_name(var: str, idx) -> str:
     # Matches camspork exec.cpp print_idx_helper (no brackets for scalars).
     return var + (f"[{', '.join(str(i) for i in idx)}]" if len(idx) else "")
 
@@ -598,7 +795,7 @@ def record_to_json(r: VisRecord) -> dict:
             [bar.split("#")[0], z] for bar, z in sorted(r.aw)
         ],  # drop instance suffix
         "mask": r.mask,
-        "flags": 2 if r.freed else 0,  # vis_record_freed_flag
+        "flags": 0,  # ignored (camspork's vis_record_before_alloc_flag)
     }
 
 
@@ -610,7 +807,6 @@ def record_from_json(r: dict) -> VisRecord:
         ob,
         aw_union(frozenset(), frozenset(tuple(a) for a in r["aw"])),
         r["mask"],
-        bool(r["flags"] & 2),  # vis_record_freed_flag
     )
 
 
@@ -679,7 +875,7 @@ def fmt_tids(t: Tids) -> str:
 
 def fmt_record(r: VisRecord, qual_names) -> str:
     parts = [f"{qual_names[qi]}:{{{fmt_tids(t)}}}" for qi, t in sorted(r.ob)]
-    return f"Ob[{' '.join(parts)}] Aw{sorted(r.aw)} mask={r.mask:#x}{' FREED' if r.freed else ''}"
+    return f"Ob[{' '.join(parts)}] Aw{sorted(r.aw)} mask={r.mask:#x}"
 
 
 def fmt_records(recs, qual_names, sep) -> str:
@@ -746,7 +942,7 @@ def write_trace_txt(filename: str, entries: List[dict], qual_names):
 # *** Test helpers ***
 
 
-def qual_info(mem, instr_tl, *, convergent=None) -> dict:
+def qual_access_kw(mem, instr_tl, *, convergent=None) -> dict:
     """access(...) keyword args from Exo's qual-tl tables (configuration, not under test).
     convergent defaults to the initial qual-tl's default (instr args); Assign/Reduce are
     always convergent, and expression reads are convergent iff executed by one thread.

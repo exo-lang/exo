@@ -2,7 +2,7 @@
 
 Each test pairs an Exo proc (traced through sync_check/camspork) with a hand-written
 reference (camspork_ref.SyncEnvRef), excut-style: thread IDs are computed by hand.
-Scope for now: no mbarriers, managed ring buffers, atomics, or multi-dimensional tasks.
+Scope for now: no multi-dimensional tasks.
 Tests never leave an access without a later sync (the trace only samples sync events).
 """
 
@@ -22,21 +22,22 @@ from exo.spork.timelines import (
     tma_to_gmem_async_instr,
 )
 from exo.spork.camspork_ref import (
+    RingGuard,
     SyncEnvRef,
     check_both_fail,
     check_trace,
-    qual_info,
+    qual_access_kw,
 )
 
 IN_ORDER = timelines.cuda_in_order.get_timeline_set_bits()
 
 
-def smem(**kw):
-    return qual_info(CudaSmemLinear, cuda_in_order_instr, **kw)
+def smem_access_kw(**kw):
+    return qual_access_kw(CudaSmemLinear, cuda_in_order_instr, **kw)
 
 
-def gmem(**kw):
-    return qual_info(CudaGmemLinear, cuda_in_order_instr, **kw)
+def gmem_access_kw(**kw):
+    return qual_access_kw(CudaGmemLinear, cuda_in_order_instr, **kw)
 
 
 def free_smem(ref, var, task=0):
@@ -44,7 +45,7 @@ def free_smem(ref, var, task=0):
     ref.free(
         var,
         check_tids=ref.task_threads(task),
-        precondition_bits=smem()["precondition_bits"],
+        precondition_bits=smem_access_kw()["precondition_bits"],
     )
 
 
@@ -91,11 +92,13 @@ def mkref_named_numeric_warps():
         ref.alloc("x", (2, 32))
         for w in range(2):
             for t in range(32):
-                ref.mutate("x", (w, t), [(3 + w) * 32 + t], **smem(convergent=True))
+                ref.mutate(
+                    "x", (w, t), [(3 + w) * 32 + t], **smem_access_kw(convergent=True)
+                )
         ref.fence(task, IN_ORDER, IN_ORDER)
         for w in range(2):
             for t in range(32):
-                ref.mutate("x", (w, t), [w * 32 + t], **smem(convergent=True))
+                ref.mutate("x", (w, t), [w * 32 + t], **smem_access_kw(convergent=True))
         ref.fence(task, IN_ORDER, IN_ORDER)
         free_smem(ref, "x")
 
@@ -140,7 +143,7 @@ def test_gmem_join_threads(compiler, tmp_path):
     def task_body():
         for w in range(2):
             for t in range(32):
-                ref.mutate("g", (w, t), [w * 32 + t], **gmem(convergent=True))
+                ref.mutate("g", (w, t), [w * 32 + t], **gmem_access_kw(convergent=True))
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
     assert_no_errors(check_trace(mkproc_gmem_join(), ref, tmp_path))
@@ -180,10 +183,12 @@ def test_strided_collective(compiler, tmp_path):
         ref.alloc("x", (4, 32))
         for w2 in range(4):
             for t in range(32):
-                ref.mutate("x", (w2, t), [w2 * 64 + t], **smem(convergent=True))
+                ref.mutate(
+                    "x", (w2, t), [w2 * 64 + t], **smem_access_kw(convergent=True)
+                )
         ref.fence(task, IN_ORDER, IN_ORDER)
         for t in range(32):
-            ref.mutate("x", (0, t), [32 + t], **smem(convergent=True))
+            ref.mutate("x", (0, t), [32 + t], **smem_access_kw(convergent=True))
         ref.fence(task, IN_ORDER, IN_ORDER)
         free_smem(ref, "x")
 
@@ -218,7 +223,7 @@ def test_cp_async_commit_group(compiler, tmp_path):
         [("x", (0, 0)), ("x", (0, 3)), ("x", (31, 1)), ("cg", ())], threads_per_task=32
     )
     task = ref.task_threads()
-    cp_async = qual_info(CudaSmemLinear, Sm80_cp_async_instr)
+    cp_async = qual_access_kw(CudaSmemLinear, Sm80_cp_async_instr)
     L1 = timelines.Sm80_cp_async.get_timeline_set_bits()
 
     def task_body():
@@ -231,7 +236,7 @@ def test_cp_async_commit_group(compiler, tmp_path):
             ref.mutate("x", (tid, 0), [tid], extent=(1, 4), tag=1, **cp_async)
             ref.arrive([tid], L1, "cg")
             ref.await_([tid], IN_ORDER, "cg", 0)
-            ref.mutate("x", (tid, 0), [tid], **smem(convergent=True))
+            ref.mutate("x", (tid, 0), [tid], **smem_access_kw(convergent=True))
             ref.free_barrier("cg")
         ref.fence(task, IN_ORDER, IN_ORDER)
         free_smem(ref, "x")
@@ -273,11 +278,13 @@ def test_cluster_sync(compiler, tmp_path):
     def task_body():
         ref.alloc_barrier("cs", (), expected=1, one_shot_await=True)
         for cta in range(2):
-            ref.mutate("g", (cta,), [cta * 64], **gmem(convergent=True))
+            ref.mutate("g", (cta,), [cta * 64], **gmem_access_kw(convergent=True))
         ref.arrive(task, IN_ORDER, "cs")
         ref.await_(task, IN_ORDER, "cs", 0)
         for cta in range(2):
-            ref.mutate("g", (1 - cta,), [cta * 64 + 32], **gmem(convergent=True))
+            ref.mutate(
+                "g", (1 - cta,), [cta * 64 + 32], **gmem_access_kw(convergent=True)
+            )
         ref.free_barrier("cs")
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
@@ -372,11 +379,13 @@ def test_window_big_then_small(compiler, tmp_path):
 
     def task_body():
         ref.alloc("x", (4, 4))
-        ref.mutate("x", (0, 0), [0], extent=(4, 4), **smem())
+        ref.mutate("x", (0, 0), [0], extent=(4, 4), **smem_access_kw())
         ref.fence(task, IN_ORDER, IN_ORDER)
         for i in range(2):
             for j in range(2):
-                ref.read("x", (2 * i, 2 * j), [2 * i + j], extent=(2, 2), **smem())
+                ref.read(
+                    "x", (2 * i, 2 * j), [2 * i + j], extent=(2, 2), **smem_access_kw()
+                )
         ref.fence(task, IN_ORDER, IN_ORDER)
         free_smem(ref, "x")
 
@@ -410,9 +419,11 @@ def test_window_small_then_big(compiler, tmp_path):
         ref.alloc("x", (4, 4))
         for i in range(2):
             for j in range(2):
-                ref.mutate("x", (2 * i, 2 * j), [2 * i + j], extent=(2, 2), **smem())
+                ref.mutate(
+                    "x", (2 * i, 2 * j), [2 * i + j], extent=(2, 2), **smem_access_kw()
+                )
         ref.fence(task, IN_ORDER, IN_ORDER)
-        ref.read("x", (0, 0), [0], extent=(4, 4), **smem())
+        ref.read("x", (0, 0), [0], extent=(4, 4), **smem_access_kw())
         ref.fence(task, IN_ORDER, IN_ORDER)
         free_smem(ref, "x")
 
@@ -453,15 +464,15 @@ def mkref_overlapping():
 
     def task_body():
         ref.alloc("x", (4, 4))
-        ref.mutate("x", (0, 0), [0], extent=(2, 2), **smem())
-        ref.mutate("x", (2, 2), [0], extent=(2, 2), **smem())
+        ref.mutate("x", (0, 0), [0], extent=(2, 2), **smem_access_kw())
+        ref.mutate("x", (2, 2), [0], extent=(2, 2), **smem_access_kw())
         ref.fence(task, IN_ORDER, IN_ORDER)
-        ref.read("x", (1, 1), [0], extent=(2, 2), **smem())
-        ref.read("x", (0, 2), [1], extent=(2, 2), **smem())
+        ref.read("x", (1, 1), [0], extent=(2, 2), **smem_access_kw())
+        ref.read("x", (0, 2), [1], extent=(2, 2), **smem_access_kw())
         ref.fence(task, IN_ORDER, IN_ORDER)
-        ref.mutate("x", (1, 1), [0], extent=(2, 2), **smem())
+        ref.mutate("x", (1, 1), [0], extent=(2, 2), **smem_access_kw())
         ref.fence(task, IN_ORDER, IN_ORDER)
-        ref.read("x", (0, 0), [0], extent=(2, 2), **smem())
+        ref.read("x", (0, 0), [0], extent=(2, 2), **smem_access_kw())
         ref.fence(task, IN_ORDER, IN_ORDER)
         free_smem(ref, "x")
 
@@ -505,10 +516,14 @@ def test_missing_fence_negative(compiler):
             ref.alloc("x", (2, 32))
             for w in range(2):
                 for t in range(32):
-                    ref.mutate("x", (w, t), [w * 32 + t], **smem(convergent=True))
+                    ref.mutate(
+                        "x", (w, t), [w * 32 + t], **smem_access_kw(convergent=True)
+                    )
             for w in range(2):
                 for t in range(32):
-                    ref.mutate("x", (1 - w, t), [w * 32 + t], **smem(convergent=True))
+                    ref.mutate(
+                        "x", (1 - w, t), [w * 32 + t], **smem_access_kw(convergent=True)
+                    )
 
         ref.cuda_device_function(lambda: ref.device_task(0, task_body))
 
@@ -566,8 +581,8 @@ def mkref_read_then_reduce(n_tasks, only_task0_reads):
     tma_L1 = timelines.tma_to_gmem_async.get_timeline_set_bits()
     # TMA operands: out-of-order, non-convergent; TAG 32 since the commit-group
     # Arrive witnessing them is executed by one warp. dst is an atomic reduce.
-    tma_dst = qual_info(CudaGmemLinear, tma_to_gmem_async_instr)
-    tma_src = qual_info(CudaSmemLinear, tma_to_gmem_async_instr)
+    tma_dst = qual_access_kw(CudaGmemLinear, tma_to_gmem_async_instr)
+    tma_src = qual_access_kw(CudaSmemLinear, tma_to_gmem_async_instr)
     atomic = timelines.tma_to_gmem_atomic_qual.as_bit()
     ref.alloc("g", (8, 8))
 
@@ -577,10 +592,12 @@ def mkref_read_then_reduce(n_tasks, only_task0_reads):
         ref.alloc("smem", (8, 8))
         for m in range(8):
             for k in range(8):
-                ref.mutate("smem", (m, k), [base + m], **smem(convergent=True))
+                ref.mutate(
+                    "smem", (m, k), [base + m], **smem_access_kw(convergent=True)
+                )
         if task < rd_hi:
             # r = g[0, 0] (r is CudaRmem, not probed: not modeled)
-            ref.read("g", (0, 0), [base], **gmem(convergent=True))
+            ref.read("g", (0, 0), [base], **gmem_access_kw(convergent=True))
         ref.fence(tt, IN_ORDER, generic_and_async)
         ref.mutate(
             "g", (0, 0), tt, extent=(8, 8), tag=32, atomic_bits=atomic, **tma_dst
@@ -624,14 +641,14 @@ def test_read_then_reduce_2_tasks_negative(compiler):
 # =============================================================================
 # mbarrier literal arrive counts (endgame_plan/plan_multicast_barrier_counts.md)
 #
-# The mbarrier itself is never probed (its managed ring buffer is not modeled by
-# the reference); counts are observed through the PendingAwaits that Arrives put
-# on GMEM records, and through whether Awaits augment those records.
-# Every mbarrier has extent == ring depth, so no ring slot is reused.
+# Counts are observed through the PendingAwaits that Arrives put on GMEM records,
+# and through whether Awaits augment those records.
+# Every mbarrier here has extent == ring depth, so no ring slot is reused
+# (ring reuse: see "Managed ring buffers" below).
 # =============================================================================
 
 
-def bars(var, idxs):
+def barrier_elem_names(var, idxs):
     return [f"{var}[{', '.join(str(i) for i in idx)}]" for idx in idxs]
 
 
@@ -663,18 +680,20 @@ def mkref_mbarrier_multicast_2cta(arrive_warps):
     ref.alloc("g", (2,))
 
     def task_body():
-        ref.alloc_barrier("bar", (2, 1), expected=E, per_thread=True)
+        ref.alloc_mbarrier("bar", (2, 1), expected=E, ring_dim=1, ring_depth=1)
         for cta in range(2):
             base = cta * 128
-            ref.mutate("g", (cta,), [base], **gmem(convergent=True))
+            ref.mutate("g", (cta,), [base], **gmem_access_kw(convergent=True))
             # Each target's own count: CTA 1's record gets z = T on both barriers.
             ref.arrive(
-                ref.tids(base, base + T), IN_ORDER, bars("bar", [(0, 0), (1, 0)])
+                ref.tids(base, base + T),
+                IN_ORDER,
+                barrier_elem_names("bar", [(0, 0), (1, 0)]),
             )
         for cta in range(2):
             base = cta * 128
             ref.await_(ref.tids(base, base + 128), IN_ORDER, f"bar[{cta}, 0]")
-            ref.mutate("g", (1 - cta,), [base], **gmem(convergent=True))
+            ref.mutate("g", (1 - cta,), [base], **gmem_access_kw(convergent=True))
         ref.free_barrier("bar")
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
@@ -719,22 +738,22 @@ def test_mbarrier_multicast_4cta(compiler, tmp_path):
     ref.alloc("g", (2, 2))
 
     def task_body():
-        ref.alloc_barrier("bar", (2, 2, 1), expected=E, per_thread=True)
+        ref.alloc_mbarrier("bar", (2, 2, 1), expected=E, ring_dim=2, ring_depth=1)
         for m in range(2):
             for n in range(2):
                 base = (2 * m + n) * 32
-                ref.mutate("g", (m, n), [base], **gmem(convergent=True))
+                ref.mutate("g", (m, n), [base], **gmem_access_kw(convergent=True))
                 # Row m only: bar[1 - m, ...] counts are untouched.
                 ref.arrive(
                     ref.tids(base, base + 32),
                     IN_ORDER,
-                    bars("bar", [(m, 0, 0), (m, 1, 0)]),
+                    barrier_elem_names("bar", [(m, 0, 0), (m, 1, 0)]),
                 )
         for m in range(2):
             for n in range(2):
                 base = (2 * m + n) * 32
                 ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{m}, {n}, 0]")
-                ref.mutate("g", (m, 1 - n), [base], **gmem(convergent=True))
+                ref.mutate("g", (m, 1 - n), [base], **gmem_access_kw(convergent=True))
         ref.free_barrier("bar")
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
@@ -768,20 +787,22 @@ def test_mbarrier_pre_arrive(compiler, tmp_path):
 
     def task_body():
         # bar[:, 0] pre-arrived at allocation (no trace event).
-        ref.alloc_barrier(
-            "bar", (2, 2), expected=E, per_thread=True, ring_dim=1, pre_arrive=1
+        ref.alloc_mbarrier(
+            "bar", (2, 2), expected=E, ring_dim=1, ring_depth=2, pre_arrive=1
         )
         for cta in range(2):
             base = cta * 32
             ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, 0]")
-            ref.mutate("g", (cta,), [base], **gmem(convergent=True))
+            ref.mutate("g", (cta,), [base], **gmem_access_kw(convergent=True))
             ref.arrive(
-                ref.tids(base, base + 32), IN_ORDER, bars("bar", [(0, 1), (1, 1)])
+                ref.tids(base, base + 32),
+                IN_ORDER,
+                barrier_elem_names("bar", [(0, 1), (1, 1)]),
             )
         for cta in range(2):
             base = cta * 32
             ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, 1]")
-            ref.mutate("g", (1 - cta,), [base], **gmem(convergent=True))
+            ref.mutate("g", (1 - cta,), [base], **gmem_access_kw(convergent=True))
         ref.free_barrier("bar")
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
@@ -813,12 +834,14 @@ def mkref_mbarrier_same_body_await():
     ref.alloc("g", (2,))
 
     def task_body():
-        ref.alloc_barrier("bar", (2, 1), expected=64, per_thread=True)
+        ref.alloc_mbarrier("bar", (2, 1), expected=64, ring_dim=1, ring_depth=1)
         for cta in range(2):
             base = cta * 32
-            ref.mutate("g", (cta,), [base], **gmem(convergent=True))
+            ref.mutate("g", (cta,), [base], **gmem_access_kw(convergent=True))
             ref.arrive(
-                ref.tids(base, base + 32), IN_ORDER, bars("bar", [(0, 0), (1, 0)])
+                ref.tids(base, base + 32),
+                IN_ORDER,
+                barrier_elem_names("bar", [(0, 0), (1, 0)]),
             )
             ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, 0]")
         ref.free_barrier("bar")
@@ -856,13 +879,15 @@ def mkref_mbarrier_too_many_arrives():
     ref.alloc("g", (2,))
 
     def task_body():
-        ref.alloc_barrier("bar", (2, 1), expected=64, per_thread=True)
+        ref.alloc_mbarrier("bar", (2, 1), expected=64, ring_dim=1, ring_depth=1)
         for cta in range(2):
             base = cta * 32
-            ref.mutate("g", (cta,), [base], **gmem(convergent=True))
+            ref.mutate("g", (cta,), [base], **gmem_access_kw(convergent=True))
             for _ in range(2):
                 ref.arrive(
-                    ref.tids(base, base + 32), IN_ORDER, bars("bar", [(0, 0), (1, 0)])
+                    ref.tids(base, base + 32),
+                    IN_ORDER,
+                    barrier_elem_names("bar", [(0, 0), (1, 0)]),
                 )
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
@@ -905,19 +930,21 @@ def test_mbarrier_seq_in_cta_loop(compiler, tmp_path):
     ref.alloc("g", (2, 2))
 
     def task_body():
-        ref.alloc_barrier("bar", (2, 2), expected=64, per_thread=True)
+        ref.alloc_mbarrier("bar", (2, 2), expected=64, ring_dim=1, ring_depth=2)
         for cta in range(2):
             base = cta * 32
             for k in range(2):
-                ref.mutate("g", (cta, k), [base], **gmem(convergent=True))
+                ref.mutate("g", (cta, k), [base], **gmem_access_kw(convergent=True))
                 ref.arrive(
-                    ref.tids(base, base + 32), IN_ORDER, bars("bar", [(0, k), (1, k)])
+                    ref.tids(base, base + 32),
+                    IN_ORDER,
+                    barrier_elem_names("bar", [(0, k), (1, k)]),
                 )
         for cta in range(2):
             base = cta * 32
             for k in range(2):
                 ref.await_(ref.tids(base, base + 32), IN_ORDER, f"bar[{cta}, {k}]")
-                ref.mutate("g", (1 - cta, k), [base], **gmem(convergent=True))
+                ref.mutate("g", (1 - cta, k), [base], **gmem_access_kw(convergent=True))
         ref.free_barrier("bar")
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
@@ -947,10 +974,12 @@ def mkref_mbarrier_if_around_arrive():
     ref.alloc("g", (2,))
 
     def task_body():
-        ref.alloc_barrier("bar", (2, 1), expected=64, per_thread=True)
+        ref.alloc_mbarrier("bar", (2, 1), expected=64, ring_dim=1, ring_depth=1)
         for cta in range(2):
-            ref.mutate("g", (cta,), [cta * 32], **gmem(convergent=True))
-        ref.arrive(ref.tids(0, 32), IN_ORDER, bars("bar", [(0, 0), (1, 0)]))
+            ref.mutate("g", (cta,), [cta * 32], **gmem_access_kw(convergent=True))
+        ref.arrive(
+            ref.tids(0, 32), IN_ORDER, barrier_elem_names("bar", [(0, 0), (1, 0)])
+        )
         ref.await_(ref.tids(0, 32), IN_ORDER, "bar[0, 0]")  # 32 of 64
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
@@ -1004,13 +1033,15 @@ def mkref_mbarrier_turnstile(lag):
     ref = SyncEnvRef([], threads_per_task=64)
 
     def task_body():
-        ref.alloc_barrier("bar", (2, K), expected=64, per_thread=True)
-        ref.alloc_barrier("tb", (2, K + lag), expected=64, per_thread=True)
+        ref.alloc_mbarrier("bar", (2, K), expected=64, ring_dim=1, ring_depth=K)
+        ref.alloc_mbarrier(
+            "tb", (2, K + lag), expected=64, ring_dim=1, ring_depth=K + lag
+        )
         # CTA 0's whole body runs first in the trace.
         tids = ref.tids(0, 32)
         k = 0
-        ref.arrive(tids, IN_ORDER, bars("bar", [(0, k), (1, k)]))
-        ref.arrive(tids, IN_ORDER, bars("tb", [(0, k), (1, k)]))
+        ref.arrive(tids, IN_ORDER, barrier_elem_names("bar", [(0, k), (1, k)]))
+        ref.arrive(tids, IN_ORDER, barrier_elem_names("tb", [(0, k), (1, k)]))
         ref.await_(tids, IN_ORDER, f"bar[0, {k}]")  # 32 of 64: no forward progress
 
     ref.cuda_device_function(lambda: ref.device_task(0, task_body))
@@ -1022,3 +1053,397 @@ def test_mbarrier_turnstile_negative(compiler, lag):
     check_both_fail(
         mkproc_mbarrier_turnstile(lag), lambda: mkref_mbarrier_turnstile(lag)
     )
+
+
+# =============================================================================
+# Managed ring buffers (amspork3 SmemAppendix.tex: allocTrDetail / freeTrDetail)
+#
+# Ring slots are reused here (extent > ring depth), so the alloc records' pending
+# awaits on the previous phase / guard are visible in the trace. freeTrDetail is only
+# observable through pass/fail of the free check.
+# =============================================================================
+
+MB = timelines.cuda_mbarrier_qual.as_bit()
+
+
+def mkproc_mbarrier_ring(arrive_warps):
+    # Self-guarded mbarrier ring: K phases on D physical mbarriers.
+    # Warps [0, arrive_warps) Arrive; warps 0 and 1 Await separately. With
+    # arrive_warps=1, warp 1's Await of phase k is never followed by its own Arrive
+    # on phase k + D, so freeing the mbarrier fails (free_missing_arrive).
+    K, D = 4, 2
+
+    @proc
+    def proc_mbarrier_ring():
+        with CudaDeviceFunction(blockDim=64):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[K @ ring_buffer_by(D)] @ CudaMbarrier
+                for k in seq(0, K):
+                    with CudaWarps(0, arrive_warps):
+                        Arrive(cuda_in_order, 1) >> bar[k]
+                    with CudaWarps(0, 1):
+                        Await(bar[k], cuda_in_order, 0)
+                    with CudaWarps(1, 2):
+                        Await(bar[k], cuda_in_order, 0)
+
+    return simplify(proc_mbarrier_ring)
+
+
+def mkref_mbarrier_ring(arrive_warps):
+    K, D = 4, 2
+    ref = SyncEnvRef([("bar", (k,)) for k in range(K)], threads_per_task=64)
+    task = ref.task_threads()
+
+    def task_body():
+        ref.alloc_mbarrier(
+            "bar", (K,), expected=32 * arrive_warps, ring_dim=0, ring_depth=D
+        )
+        for k in range(K):
+            ref.arrive(ref.tids(0, 32 * arrive_warps), IN_ORDER, f"bar[{k}]")
+            ref.await_(ref.tids(0, 32), IN_ORDER, f"bar[{k}]")
+            ref.await_(ref.tids(32, 64), IN_ORDER, f"bar[{k}]")
+        ref.free_barrier("bar")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    return ref
+
+
+def test_mbarrier_ring(compiler, tmp_path):
+    assert_no_errors(
+        check_trace(mkproc_mbarrier_ring(2), mkref_mbarrier_ring(2), tmp_path)
+    )
+
+
+def test_mbarrier_ring_free_negative(compiler):
+    check_both_fail(mkproc_mbarrier_ring(1), lambda: mkref_mbarrier_ring(1))
+
+
+def mkproc_mbarrier_ring_missing_await():
+    # Arrive on phase D before anyone Awaited phase 0 of the same physical mbarrier.
+    K, D = 4, 2
+
+    @proc
+    def proc_mbarrier_ring_missing_await():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[K @ ring_buffer_by(D)] @ CudaMbarrier
+                for k in seq(0, K):
+                    Arrive(cuda_in_order, 1) >> bar[k]
+                for k in seq(0, K):
+                    Await(bar[k], cuda_in_order, 0)
+
+    return simplify(proc_mbarrier_ring_missing_await)
+
+
+def mkref_mbarrier_ring_missing_await():
+    K, D = 4, 2
+    ref = SyncEnvRef([], threads_per_task=32)
+
+    def task_body():
+        ref.alloc_mbarrier("bar", (K,), expected=32, ring_dim=0, ring_depth=D)
+        for k in range(K):
+            ref.arrive(ref.tids(0, 32), IN_ORDER, f"bar[{k}]")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    return ref
+
+
+def test_mbarrier_ring_missing_await_negative(compiler):
+    check_both_fail(
+        mkproc_mbarrier_ring_missing_await(), mkref_mbarrier_ring_missing_await
+    )
+
+
+def mkproc_smem_ring(early_war_arrive=False):
+    # SMEM data ring buffer x (K slots, depth D) guarded by war (K + D phases,
+    # first D pre-arrived), as in the Sm90 GEMMs. Producer warp 0 writes x[k];
+    # consumer warp 1 copies it to g. early_war_arrive: the consumer releases the
+    # slot (Arrive on war[k + D]) before reading it, so freeing x fails.
+    K, D = 4, 2
+    late_war_arrive = not early_war_arrive
+
+    @proc
+    def proc_smem_ring(g: f32[32] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=64):
+            for task in cuda_tasks(0, 1):
+                war: barrier[(K + D) @ ring_buffer_by(D)] @ CudaMbarrierPreArrive(D)
+                raw: barrier[K @ ring_buffer_by(D)] @ CudaMbarrier
+                x: f32[K @ ring_buffer_by(D), 32].ring_guarded_by(war) @ CudaSmemLinear
+                for k in seq(0, K):
+                    with CudaWarps(0, 1):
+                        Await(war[k], cuda_in_order, 0)
+                        for t in cuda_threads(0, 32):
+                            x[k, t] = 0
+                        Arrive(cuda_in_order, 1) >> raw[k]
+                    with CudaWarps(1, 2):
+                        Await(raw[k], cuda_in_order, 0)
+                        if early_war_arrive:
+                            Arrive(cuda_in_order, 1) >> war[k + D]
+                        for t in cuda_threads(0, 32):
+                            g[t] = x[k, t]
+                        if late_war_arrive:
+                            Arrive(cuda_in_order, 1) >> war[k + D]
+
+    return simplify(proc_smem_ring)
+
+
+def mkref_smem_ring(early_war_arrive=False, probes=()):
+    K, D = 4, 2
+    ref = SyncEnvRef(probes, threads_per_task=64)
+    ref.alloc("g", (32,))
+    producer, consumer = ref.tids(0, 32), ref.tids(32, 64)
+
+    def task_body():
+        ref.alloc_mbarrier(
+            "war", (K + D,), expected=32, ring_dim=0, ring_depth=D, pre_arrive=D
+        )
+        ref.alloc_mbarrier("raw", (K,), expected=32, ring_dim=0, ring_depth=D)
+        ring = RingGuard("war", ring_dim=0, ring_depth=D)
+        ref.alloc("x", (K, 32), ring=ring, mask=smem_access_kw()["mask"])
+        for k in range(K):
+            ref.await_(producer, IN_ORDER, f"war[{k}]")
+            for t in range(32):
+                ref.mutate("x", (k, t), [t], **smem_access_kw(convergent=True))
+            ref.arrive(producer, IN_ORDER, f"raw[{k}]")
+            ref.await_(consumer, IN_ORDER, f"raw[{k}]")
+            if early_war_arrive:
+                ref.arrive(consumer, IN_ORDER, f"war[{k + D}]")
+            for t in range(32):
+                ref.read("x", (k, t), [32 + t], **smem_access_kw(convergent=True))
+                ref.mutate("g", (t,), [32 + t], **gmem_access_kw(convergent=True))
+            if not early_war_arrive:
+                ref.arrive(consumer, IN_ORDER, f"war[{k + D}]")
+        ref.free("x")
+        ref.free_barrier("raw")
+        ref.free_barrier("war")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    return ref
+
+
+def test_smem_ring(compiler, tmp_path):
+    probes = [("x", (0, 0)), ("x", (2, 5)), ("war", (2,)), ("raw", (3,)), ("g", (0,))]
+    assert_no_errors(
+        check_trace(mkproc_smem_ring(), mkref_smem_ring(probes=probes), tmp_path)
+    )
+
+
+def test_smem_ring_early_war_arrive_negative(compiler):
+    check_both_fail(
+        mkproc_smem_ring(early_war_arrive=True),
+        lambda: mkref_smem_ring(early_war_arrive=True),
+    )
+
+
+def mkproc_smem_ring_multicast_2cta():
+    # As mkproc_smem_ring, per CTA of a 2-CTA cluster, with the war and raw Arrives
+    # multicast to both CTAs (like the GEMMs' A tile): guards(x[c, k]) = {war[0, k], war[1, k]}.
+    # raw must multicast too: otherwise CTA 0's consumer would Arrive on CTA 1's next
+    # war phase with no ordering after CTA 1's producer Awaited the current one (a real race).
+    # Producers and consumers are in separate CTA loops so the serialized trace makes progress.
+    # Blind spot: gNext's multicast expansion can't be tested, since an Arrive always
+    # covers the whole multicast group (all of gNext arrives, or none of it).
+    K, D = 3, 2
+
+    @proc
+    def proc_smem_ring_multicast_2cta(g: f32[2, 32] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=2, blockDim=64):
+            for task in cuda_tasks(0, 1):
+                war: barrier[2, (K + D) @ ring_buffer_by(D)] @ CudaMbarrierPreArrive(D)
+                raw: barrier[2, K @ ring_buffer_by(D)] @ CudaMbarrier
+                x: (
+                    f32[2, K @ ring_buffer_by(D), 32].ring_guarded_by(war)
+                    @ CudaSmemLinear
+                )
+                for k in seq(0, K):
+                    for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                        with CudaWarps(0, 1):
+                            Await(war[cta, k], cuda_in_order, 0)
+                            for t in cuda_threads(0, 32):
+                                x[cta, k, t] = 0
+                            Arrive(cuda_in_order, 1) >> raw[cta, k] >> raw[:, k]
+                    for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                        with CudaWarps(1, 2):
+                            Await(raw[cta, k], cuda_in_order, 0)
+                            for t in cuda_threads(0, 32):
+                                g[cta, t] = x[cta, k, t]
+                            Arrive(cuda_in_order, 1) >> war[cta, k + D] >> war[:, k + D]
+
+    return simplify(proc_smem_ring_multicast_2cta)
+
+
+def test_smem_ring_multicast_2cta(compiler, tmp_path):
+    K, D = 3, 2
+    probes = [("x", (0, 0, 0)), ("x", (1, 2, 7)), ("war", (0, 2)), ("war", (1, 4))]
+    ref = SyncEnvRef(probes, threads_per_task=128)
+    ref.alloc("g", (2, 32))
+
+    def task_body():
+        ref.alloc_mbarrier(
+            "war", (2, K + D), expected=64, ring_dim=1, ring_depth=D, pre_arrive=D
+        )
+        ref.alloc_mbarrier("raw", (2, K), expected=64, ring_dim=1, ring_depth=D)
+        # `>> war[cta, k + D] >> war[:, k + D]`
+        ring = RingGuard(
+            "war",
+            ring_dim=1,
+            ring_depth=D,
+            guard_multicast=((False, False), (True, False)),
+        )
+        ref.alloc("x", (2, K, 32), ring=ring, mask=smem_access_kw()["mask"])
+        for k in range(K):
+            for cta in range(2):
+                base = cta * 64
+                producer = ref.tids(base, base + 32)
+                ref.await_(producer, IN_ORDER, f"war[{cta}, {k}]")
+                for t in range(32):
+                    ref.mutate(
+                        "x", (cta, k, t), [base + t], **smem_access_kw(convergent=True)
+                    )
+                ref.arrive(
+                    producer, IN_ORDER, barrier_elem_names("raw", [(0, k), (1, k)])
+                )
+            for cta in range(2):
+                base = cta * 64
+                consumer = ref.tids(base + 32, base + 64)
+                ref.await_(consumer, IN_ORDER, f"raw[{cta}, {k}]")
+                for t in range(32):
+                    ref.read(
+                        "x",
+                        (cta, k, t),
+                        [base + 32 + t],
+                        **smem_access_kw(convergent=True),
+                    )
+                    ref.mutate(
+                        "g",
+                        (cta, t),
+                        [base + 32 + t],
+                        **gmem_access_kw(convergent=True),
+                    )
+                ref.arrive(
+                    consumer,
+                    IN_ORDER,
+                    barrier_elem_names("war", [(0, k + D), (1, k + D)]),
+                )
+        ref.free("x")
+        ref.free_barrier("raw")
+        ref.free_barrier("war")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    assert_no_errors(check_trace(mkproc_smem_ring_multicast_2cta(), ref, tmp_path))
+
+
+def mkproc_smem_ring_cross_4cta():
+    # 2 x 2 cluster (m, n) with the GEMMs' cross-shaped multicast:
+    # `>> war[m, n, k] >> war[m, :, k] >> war[:, n, k]` reaches 3 of the 4 CTAs, so
+    # guards(x[m, n, k]) has 3 elements (the union of a row and a column, not the
+    # whole 2 x 2 rectangle). raw multicasts the same way (see mkproc_smem_ring_multicast_2cta).
+    K, D = 3, 2
+
+    @proc
+    def proc_smem_ring_cross_4cta(g: f32[2, 2, 32] @ CudaGmemLinear):
+        with CudaDeviceFunction(clusterDim=4, blockDim=64):
+            for task in cuda_tasks(0, 1):
+                war: barrier[2, 2, (K + D) @ ring_buffer_by(D)] @ CudaMbarrierPreArrive(
+                    D
+                )
+                raw: barrier[2, 2, K @ ring_buffer_by(D)] @ CudaMbarrier
+                x: (
+                    f32[2, 2, K @ ring_buffer_by(D), 32].ring_guarded_by(war)
+                    @ CudaSmemLinear
+                )
+                for k in seq(0, K):
+                    for m in cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster):
+                        for n in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                            with CudaWarps(0, 1):
+                                Await(war[m, n, k], cuda_in_order, 0)
+                                for t in cuda_threads(0, 32):
+                                    x[m, n, k, t] = 0
+                                (
+                                    Arrive(cuda_in_order, 1)
+                                    >> raw[m, n, k]
+                                    >> raw[m, :, k]
+                                    >> raw[:, n, k]
+                                )
+                    for m in cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster):
+                        for n in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                            with CudaWarps(1, 2):
+                                Await(raw[m, n, k], cuda_in_order, 0)
+                                for t in cuda_threads(0, 32):
+                                    g[m, n, t] = x[m, n, k, t]
+                                (
+                                    Arrive(cuda_in_order, 1)
+                                    >> war[m, n, k + D]
+                                    >> war[m, :, k + D]
+                                    >> war[:, n, k + D]
+                                )
+
+    return simplify(proc_smem_ring_cross_4cta)
+
+
+def test_smem_ring_cross_4cta(compiler, tmp_path):
+    K, D = 3, 2
+    E = 3 * 32  # each mbarrier gets Arrives from the 3 CTAs of its cross
+    probes = [("x", (1, 1, 2, 7)), ("x", (0, 1, 0, 0)), ("war", (0, 0, 2))]
+    ref = SyncEnvRef(probes, threads_per_task=256)
+    ref.alloc("g", (2, 2, 32))
+
+    def cross_guard_idxs(m, n, k):
+        return [(m, n, k), (m, 1 - n, k), (1 - m, n, k)]
+
+    def task_body():
+        ref.alloc_mbarrier(
+            "war", (2, 2, K + D), expected=E, ring_dim=2, ring_depth=D, pre_arrive=D
+        )
+        ref.alloc_mbarrier("raw", (2, 2, K), expected=E, ring_dim=2, ring_depth=D)
+        # `>> war[m, n, k] >> war[m, :, k] >> war[:, n, k]`
+        mc = ((False, False, False), (False, True, False), (True, False, False))
+        ring = RingGuard("war", ring_dim=2, ring_depth=D, guard_multicast=mc)
+        ref.alloc("x", (2, 2, K, 32), ring=ring, mask=smem_access_kw()["mask"])
+        for k in range(K):
+            for m in range(2):
+                for n in range(2):
+                    base = (2 * m + n) * 64
+                    producer = ref.tids(base, base + 32)
+                    ref.await_(producer, IN_ORDER, f"war[{m}, {n}, {k}]")
+                    for t in range(32):
+                        ref.mutate(
+                            "x",
+                            (m, n, k, t),
+                            [base + t],
+                            **smem_access_kw(convergent=True),
+                        )
+                    ref.arrive(
+                        producer,
+                        IN_ORDER,
+                        barrier_elem_names("raw", cross_guard_idxs(m, n, k)),
+                    )
+            for m in range(2):
+                for n in range(2):
+                    base = (2 * m + n) * 64
+                    consumer = ref.tids(base + 32, base + 64)
+                    ref.await_(consumer, IN_ORDER, f"raw[{m}, {n}, {k}]")
+                    for t in range(32):
+                        ref.read(
+                            "x",
+                            (m, n, k, t),
+                            [base + 32 + t],
+                            **smem_access_kw(convergent=True),
+                        )
+                        ref.mutate(
+                            "g",
+                            (m, n, t),
+                            [base + 32 + t],
+                            **gmem_access_kw(convergent=True),
+                        )
+                    ref.arrive(
+                        consumer,
+                        IN_ORDER,
+                        barrier_elem_names("war", cross_guard_idxs(m, n, k + D)),
+                    )
+        ref.free("x")
+        ref.free_barrier("raw")
+        ref.free_barrier("war")
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    assert_no_errors(check_trace(mkproc_smem_ring_cross_4cta(), ref, tmp_path))
