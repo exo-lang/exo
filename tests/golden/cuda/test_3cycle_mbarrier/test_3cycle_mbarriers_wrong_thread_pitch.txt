@@ -46,7 +46,7 @@ def proc_3cycle_mbarriers():
             #
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # New VisRecord:
-            #   pending await: BtoC[0, 0] arrive_count=0
+            #   pending await: BtoC[0, 0] arrive_count=31
             BtoC: barrier[2, (25 + 3) @ (ring_buffer_by(
                 depth=6))] @ CudaMbarrierPreArrive(3, )
             # distributed dims: 0, thread pitch tuple () from Arrive @ tests/cuda/test_3cycle_mbarrier.py:73:16:(s30)
@@ -123,7 +123,7 @@ def proc_3cycle_mbarriers():
                         #   threads: [task_index = 0 [128],
                         #             task_index = 0 [159]], inclusive, formatted w/ domain [384]
                         #             cuda_mbarrier_qual
-                        #   pending await: BtoC[0, 0] arrive_count=0
+                        #   pending await: BtoC[0, 0] arrive_count=31
                         Arrive(cuda_in_order, 1) >> BtoC[w, n + 3]
                 with CudaWarps(name='C'):
                     # Domain (ω.D) = [ 384]
@@ -164,12 +164,12 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
                             # BEFORE:
-                            #   pending await: BtoC[0, 0] arrive_count=0
+                            #   pending await: BtoC[0, 0] arrive_count=31
                             # AFTER:
                             #   threads: [task_index = 0 [128],
                             #             task_index = 0 [159]], inclusive, formatted w/ domain [384]
                             #             cuda_mbarrier_qual
-                            #   pending await: BtoC[0, 0] arrive_count=0
+                            #   pending await: BtoC[0, 0] arrive_count=31
                             Await(BtoC[wg, n], cuda_in_order, 0)
                     # thread_pitch=128; exo_128thr_wg = ((threadIdx.x - 128) / 128) @ tests/cuda/test_3cycle_mbarrier.py:83:24:(s130)
                     for wg in cuda_threads(0, 2, unit=cuda_warpgroup):

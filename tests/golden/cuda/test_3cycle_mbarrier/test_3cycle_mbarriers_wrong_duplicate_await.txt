@@ -49,7 +49,7 @@ def proc_3cycle_mbarriers():
             #
             # tests/cuda/test_3cycle_mbarrier.py:73:16:(s30):
             # New VisRecord:
-            #   pending await: CtoA[0, 0] arrive_count=0
+            #   pending await: CtoA[0, 0] arrive_count=63
             CtoA: barrier[2, (25 + 1) @ (ring_buffer_by(
                 depth=6))] @ CudaMbarrierPreArrive(1, )
             # tests/cuda/test_3cycle_mbarrier.py:74:16:(s240):
@@ -97,7 +97,7 @@ def proc_3cycle_mbarriers():
                         #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
                         #             cuda_mbarrier_qual
                         #   pending await: AtoB[0, 2] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         # AFTER:
                         #   threads: [task_index = 0 [0],
                         #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -106,7 +106,7 @@ def proc_3cycle_mbarriers():
                         #             task_index = 0 [95]], inclusive, formatted w/ domain [384]
                         #             cuda_mbarrier_qual
                         #   pending await: AtoB[0, 2] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         Await(AtoB[w, n], cuda_in_order, 0)
                         # tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
                         # Last sync recorded:
@@ -137,7 +137,7 @@ def proc_3cycle_mbarriers():
                         #             task_index = 0 [95]], inclusive, formatted w/ domain [384]
                         #             cuda_mbarrier_qual
                         #   pending await: AtoB[0, 2] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         # AFTER:
                         #   threads: [task_index = 0 [0],
                         #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -147,7 +147,7 @@ def proc_3cycle_mbarriers():
                         #             cuda_mbarrier_qual
                         #   pending await: AtoB[0, 2] arrive_count=0
                         #   pending await: BtoC[0, 5] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         #
                         # tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
                         # Arrive recorded, which caused VisRecord change:
@@ -168,7 +168,7 @@ def proc_3cycle_mbarriers():
                         #             cuda_mbarrier_qual
                         #   pending await: AtoB[0, 2] arrive_count=0
                         #   pending await: BtoC[0, 5] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         # AFTER:
                         #   threads: [task_index = 0 [0],
                         #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -179,7 +179,7 @@ def proc_3cycle_mbarriers():
                         #   pending await: AtoB[0, 2] arrive_count=0
                         #   pending await: BtoC[0, 5] arrive_count=0
                         #   pending await: BtoC[0, 6] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         #
                         # tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
                         # Arrive recorded, which caused VisRecord change:
@@ -201,7 +201,7 @@ def proc_3cycle_mbarriers():
                         #   pending await: AtoB[0, 2] arrive_count=0
                         #   pending await: BtoC[0, 5] arrive_count=0
                         #   pending await: BtoC[0, 6] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         # AFTER:
                         #   threads: [task_index = 0 [0],
                         #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -213,7 +213,7 @@ def proc_3cycle_mbarriers():
                         #   pending await: BtoC[0, 5] arrive_count=0
                         #   pending await: BtoC[0, 6] arrive_count=0
                         #   pending await: BtoC[0, 7] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         #
                         # tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
                         # Arrive recorded, which caused VisRecord change:
@@ -236,7 +236,7 @@ def proc_3cycle_mbarriers():
                         #   pending await: BtoC[0, 5] arrive_count=0
                         #   pending await: BtoC[0, 6] arrive_count=0
                         #   pending await: BtoC[0, 7] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         # AFTER:
                         #   threads: [task_index = 0 [0],
                         #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -249,7 +249,7 @@ def proc_3cycle_mbarriers():
                         #   pending await: BtoC[0, 6] arrive_count=0
                         #   pending await: BtoC[0, 7] arrive_count=0
                         #   pending await: BtoC[0, 8] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         #
                         # tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
                         # Arrive recorded, which caused VisRecord change:
@@ -276,7 +276,7 @@ def proc_3cycle_mbarriers():
                         #   pending await: BtoC[0, 6] arrive_count=0
                         #   pending await: BtoC[0, 7] arrive_count=0
                         #   pending await: BtoC[0, 8] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         #   pending await: CtoA[0, 6] arrive_count=0
                         # AFTER:
                         #   threads: [task_index = 0 [0],
@@ -294,7 +294,7 @@ def proc_3cycle_mbarriers():
                         #   pending await: BtoC[0, 7] arrive_count=0
                         #   pending await: BtoC[0, 8] arrive_count=0
                         #   pending await: BtoC[0, 9] arrive_count=0
-                        #   pending await: CtoA[0, 0] arrive_count=0
+                        #   pending await: CtoA[0, 0] arrive_count=63
                         #   pending await: CtoA[0, 6] arrive_count=0
                         Arrive(cuda_in_order, 1) >> BtoC[w, n + 3]
                 with CudaWarps(name='C'):
@@ -347,7 +347,7 @@ def proc_3cycle_mbarriers():
                             #   pending await: BtoC[0, 6] arrive_count=0
                             #   pending await: BtoC[0, 7] arrive_count=0
                             #   pending await: BtoC[0, 8] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             # AFTER:
                             #   threads: [task_index = 0 [0],
                             #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -363,7 +363,7 @@ def proc_3cycle_mbarriers():
                             #   pending await: BtoC[0, 6] arrive_count=0
                             #   pending await: BtoC[0, 7] arrive_count=0
                             #   pending await: BtoC[0, 8] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             #
                             # tests/cuda/test_3cycle_mbarrier.py:82:32:(s80):
                             # Await recorded, which caused VisRecord change:
@@ -392,7 +392,7 @@ def proc_3cycle_mbarriers():
                             #   pending await: BtoC[0, 7] arrive_count=0
                             #   pending await: BtoC[0, 8] arrive_count=0
                             #   pending await: BtoC[0, 9] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             #   pending await: CtoA[0, 6] arrive_count=0
                             # AFTER:
                             #   threads: [task_index = 0 [0],
@@ -410,7 +410,7 @@ def proc_3cycle_mbarriers():
                             #   pending await: BtoC[0, 7] arrive_count=0
                             #   pending await: BtoC[0, 8] arrive_count=0
                             #   pending await: BtoC[0, 9] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             #   pending await: CtoA[0, 6] arrive_count=0
                             Await(BtoC[wg, n], cuda_in_order, 0)
                     # thread_pitch=128; exo_128thr_wg = ((threadIdx.x - 128) / 128) @ tests/cuda/test_3cycle_mbarrier.py:83:24:(s130)
@@ -459,7 +459,7 @@ def proc_3cycle_mbarriers():
                             #   pending await: BtoC[0, 6] arrive_count=0
                             #   pending await: BtoC[0, 7] arrive_count=0
                             #   pending await: BtoC[0, 8] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             # AFTER:
                             #   threads: [task_index = 0 [0],
                             #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -475,7 +475,7 @@ def proc_3cycle_mbarriers():
                             #   pending await: BtoC[0, 6] arrive_count=0
                             #   pending await: BtoC[0, 7] arrive_count=0
                             #   pending await: BtoC[0, 8] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             #   pending await: CtoA[0, 6] arrive_count=0
                             #
                             # tests/cuda/test_3cycle_mbarrier.py:85:32:(s110):
@@ -504,7 +504,7 @@ def proc_3cycle_mbarriers():
                             #   pending await: BtoC[0, 7] arrive_count=0
                             #   pending await: BtoC[0, 8] arrive_count=0
                             #   pending await: BtoC[0, 9] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             #   pending await: CtoA[0, 6] arrive_count=0
                             # AFTER:
                             #   threads: [task_index = 0 [0],
@@ -522,7 +522,7 @@ def proc_3cycle_mbarriers():
                             #   pending await: BtoC[0, 7] arrive_count=0
                             #   pending await: BtoC[0, 8] arrive_count=0
                             #   pending await: BtoC[0, 9] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             #   pending await: CtoA[0, 6] arrive_count=0
                             #   pending await: CtoA[0, 7] arrive_count=0
                             Arrive(cuda_in_order, 1) >> CtoA[wg, n + 1]
@@ -578,12 +578,12 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
                             # BEFORE:
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             # AFTER:
                             #   threads: [task_index = 0 [0],
                             #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
                             #             cuda_mbarrier_qual
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             Await(CtoA[tid, n], cuda_in_order, 0)
                             # tests/cuda/test_3cycle_mbarrier.py:91:32:(s160):
                             # Last sync recorded:
@@ -610,13 +610,13 @@ def proc_3cycle_mbarriers():
                             #   threads: [task_index = 0 [0],
                             #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
                             #             cuda_mbarrier_qual
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             # AFTER:
                             #   threads: [task_index = 0 [0],
                             #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
                             #             cuda_mbarrier_qual
                             #   pending await: AtoB[0, 2] arrive_count=0
-                            #   pending await: CtoA[0, 0] arrive_count=0
+                            #   pending await: CtoA[0, 0] arrive_count=63
                             Arrive(cuda_in_order, 1) >> AtoB[tid, n + 2]
                     else:
                         # tests/cuda/test_3cycle_mbarrier.py:93:28:(s210):
@@ -679,7 +679,7 @@ def proc_3cycle_mbarriers():
                                 #   pending await: BtoC[0, 7] arrive_count=0
                                 #   pending await: BtoC[0, 8] arrive_count=0
                                 #   pending await: BtoC[0, 9] arrive_count=0
-                                #   pending await: CtoA[0, 0] arrive_count=0
+                                #   pending await: CtoA[0, 0] arrive_count=63
                                 #   pending await: CtoA[0, 6] arrive_count=0
                                 #   pending await: CtoA[0, 7] arrive_count=0
                                 Await(CtoA[tid, n], cuda_in_order, 0)
