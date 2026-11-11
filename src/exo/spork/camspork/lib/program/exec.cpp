@@ -166,7 +166,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 }
                 s << "], \"aw\": [";
                 for (size_t j = 0; j < data.pending_await_list.size(); ++j) {
-                    const PendingAwait& aw = data.pending_await_list[j];
+                    const PendingAwaitRay& aw = data.pending_await_list[j];
                     s << (j ? ", " : "") << "[\"" << barrier_str(aw.hamster_barrier_id) << "\", " << aw.arrive_count << "]";
                 }
                 s << "], \"mask\": " << data.qual_tl_mask << ", \"flags\": " << data.flags << "}";

@@ -200,12 +200,12 @@ struct HamsterPendingAwaitSet
     refcnt_t refcnt = 1;
 
     // Sorted by barrier ID. Each barrier ID exists at most once.
-    // NB we play fast-and-loose interchanging PendingAwait and barrier_id, and we implement polymorphic <, == for this.
+    // NB we play fast-and-loose interchanging PendingAwaitRay and barrier_id, and we implement polymorphic <, == for this.
     //
-    // Each PendingAwait.hamster_barrier_id is an owning reference to HamsterBarrierState.
+    // Each PendingAwaitRay.hamster_barrier_id is an owning reference to HamsterBarrierState.
     //
     // NOTE, this sorted_map is immutable. We copy-on-write this HamsterPendingAwaitSet upon changes.
-    SortedVector<PendingAwait> sorted_map;
+    SortedVector<PendingAwaitRay> sorted_map;
 
     // Weak references to VisRecord that refer to this HamsterPendingAwaitSet.
     // When a VisRecord is deleted, it must remove itself from this list.
@@ -375,7 +375,7 @@ struct VisRecordEntropy
         pcg3d_z(interval.qual_bits);
     }
 
-    void operator() (PendingAwait pending_await)
+    void operator() (PendingAwaitRay pending_await)
     {
         pcg3d_z(uint32_t(pending_await.hamster_barrier_id.data));
         pcg3d_z(uint32_t(pending_await.arrive_count));
@@ -628,7 +628,7 @@ struct SyncvTable
         HamsterPendingAwaitSet& node = get(id);
         CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "should not have started with 0 refcnt");
         if (0 == --node.refcnt) {
-            for (PendingAwait pending_await : node.sorted_map) {
+            for (PendingAwaitRay pending_await : node.sorted_map) {
                 // Update linked barrier states.
                 // Remove back references to dead object, and decref
                 // (in that order, so the state doesn't disappear from under us).
@@ -792,7 +792,7 @@ struct SyncvTable
                 // (e.g. mbarrier expect-tx vs. complete-tx); acknowledged gap.
                 HamsterBarrierState& bar_state = get(state_id);
                 const int32_t arrive_count = ForceEac1 ? bar_state.expected_arrive_count - 1 : bar_state.arrive_count;
-                new_set.sorted_map.data.insert(insert_iter, PendingAwait{bar_id, arrive_count});
+                new_set.sorted_map.data.insert(insert_iter, PendingAwaitRay{bar_id, arrive_count});
                 incref(state_id);
             }
 
@@ -977,7 +977,7 @@ struct SyncvTable
 
     bool equal(nodepool::id<HamsterPendingAwaitSet> id_0, nodepool::id<HamsterPendingAwaitSet> id_1) const
     {
-        static const std::vector<PendingAwait> empty;
+        static const std::vector<PendingAwaitRay> empty;
         const auto& set_0 = id_0 ? get(id_0).sorted_map.data : empty;
         const auto& set_1 = id_1 ? get(id_1).sorted_map.data : empty;
         return set_0 == set_1;
@@ -1163,7 +1163,7 @@ struct SyncvTable
     void init_back_refs(nodepool::id<HamsterPendingAwaitSet> set_id)
     {
         HamsterPendingAwaitSet& set = get(set_id);
-        for (PendingAwait pending_await : set.sorted_map) {
+        for (PendingAwaitRay pending_await : set.sorted_map) {
             HamsterBarrierState& state = get(pending_await.hamster_barrier_id);
             auto [found, insert_iter] = state.sorted_back_refs.insertion_point(set_id);
             CAMSPORK_REQUIRE(!found, "init_back_refs not meant to be idempotent");
@@ -1203,7 +1203,7 @@ struct SyncvTable
         }
 
         if (vis_record.pending_awaits) {
-            for (PendingAwait await_id : get(vis_record.pending_awaits).sorted_map) {
+            for (PendingAwaitRay await_id : get(vis_record.pending_awaits).sorted_map) {
                 entropy(await_id);
             }
         }
@@ -1719,7 +1719,7 @@ struct SyncvTable
 
         const ThreadCuboid* p_cuboid;
         qual_bits_t L1_qual_bits;
-        std::vector<PendingAwait> pending_awaits;
+        std::vector<PendingAwaitRay> pending_awaits;
         Logger& logger;
 
         Map<nodepool::id<HamsterPendingAwaitSet>, nodepool::id<HamsterPendingAwaitSet>> cow_map;
@@ -1736,7 +1736,7 @@ struct SyncvTable
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
             VisRecord& record = node.base_data;
 
-            auto matcher = [free_on_arrive_id=record.free_on_arrive] (PendingAwait pending_await) -> bool
+            auto matcher = [free_on_arrive_id=record.free_on_arrive] (PendingAwaitRay pending_await) -> bool
             {
                 return free_on_arrive_id.id_bits == pending_await.hamster_barrier_id.data;
             };
@@ -1763,14 +1763,14 @@ struct SyncvTable
                         HamsterPendingAwaitSet& old_set = env.get(record.pending_awaits);
                         set.sorted_map = old_set.sorted_map;
                         old_set.sorted_back_refs.erase(vis_record_id);
-                        for (PendingAwait await_id : set.sorted_map) {
+                        for (PendingAwaitRay await_id : set.sorted_map) {
                             nodepool::id<HamsterBarrierState> state_id{await_id.hamster_barrier_id.data};
                             env.incref(state_id);
                         }
                     }
 
-                    for (PendingAwait await_id : pending_awaits) {
-                        // Only insert PendingAwait if its barrier id is not already in the pending await set.
+                    for (PendingAwaitRay await_id : pending_awaits) {
+                        // Only insert PendingAwaitRay if its barrier id is not already in the pending await set.
                         // If already in, this is a no-op: the existing lower arrive count takes priority
                         // over the new higher arrive count.
                         auto [exists, insert_iter] = set.sorted_map.insertion_point(await_id.hamster_barrier_id);
@@ -1964,7 +1964,7 @@ struct SyncvTable
 
         // Each barrier's own arrive count is read and incremented.
         // The increment is the thread count (mbarrier) or 1 (other barrier mechanisms).
-        std::vector<PendingAwait> pending_awaits(count);
+        std::vector<PendingAwaitRay> pending_awaits(count);
         barrier_id too_many_arrives{};
         for (uint32_t i = 0; i < count; ++i) {
             HamsterBarrierState& state = get(arrive.all_barriers[i]);
@@ -2011,14 +2011,14 @@ struct SyncvTable
         logger.history_set_sync_stmt_info(await, state, new_await_count, max_arrive_count);
         state.await_count = new_await_count;
 
-        // Update each VisRecord that references the awaited barrier in a PendingAwait,
-        // and if the PendingAwait has a sufficiently low arrive_count, augment the VisRecord.
+        // Update each VisRecord that references the awaited barrier in a PendingAwaitRay,
+        // and if the PendingAwaitRay has a sufficiently low arrive_count, augment the VisRecord.
         // Need to make a COPY of this list due to risk of iterator invalidation.
         const auto set_id_list = state.sorted_back_refs;
         for (nodepool::id<HamsterPendingAwaitSet> set_id : set_id_list) {
             HamsterPendingAwaitSet& set = get(set_id);
-            const PendingAwait* p_pending_await = set.sorted_map.find_ptr(await.bar);
-            // for (PendingAwait await_id : set.sorted_map) {
+            const PendingAwaitRay* p_pending_await = set.sorted_map.find_ptr(await.bar);
+            // for (PendingAwaitRay await_id : set.sorted_map) {
             //     printf(
             //         "%i -> %i -> PendingAwait(%i, %i)\n",
             //         int(await.bar.data), int(set_id.id_bits),
@@ -2803,7 +2803,7 @@ struct SyncvTable
 
             for (nodepool::id<HamsterPendingAwaitSet> back_id : state.sorted_back_refs) {
                 const HamsterPendingAwaitSet& set = get(back_id);
-                const PendingAwait* p_found = set.sorted_map.find_ptr(barrier_id{id.id_bits});
+                const PendingAwaitRay* p_found = set.sorted_map.find_ptr(barrier_id{id.id_bits});
                 CAMSPORK_REQUIRE(p_found, "Invalid back reference");
                 CAMSPORK_REQUIRE_CMP(p_found->hamster_barrier_id.data, ==, id.id_bits, "Invalid back reference");
             }
@@ -2937,7 +2937,7 @@ struct SyncvTable
             }
 
             // Count strong references to HamsterBarrierState, and correct back reference.
-            const SortedVector<PendingAwait>& sorted_map = set.sorted_map;
+            const SortedVector<PendingAwaitRay>& sorted_map = set.sorted_map;
             for (size_t i = 0; i < sorted_map.size(); ++i) {
                 if (i >= 1) {
                     CAMSPORK_REQUIRE_CMP(
@@ -2947,7 +2947,7 @@ struct SyncvTable
                         "SortedVector fail"
                     );
                 }
-                const PendingAwait await_id = sorted_map[i];
+                const PendingAwaitRay await_id = sorted_map[i];
                 record_owning(nodepool::id<HamsterBarrierState>{await_id.hamster_barrier_id.data});
                 const HamsterBarrierState& state = get(await_id.hamster_barrier_id);
                 const nodepool::id<HamsterPendingAwaitSet>* p_should_be_us = state.sorted_back_refs.find_ptr(id);
@@ -3045,7 +3045,7 @@ struct SyncvTable
             );
         }
         if (record.pending_awaits) {
-            for (PendingAwait pending_await : get(record.pending_awaits).sorted_map) {
+            for (PendingAwaitRay pending_await : get(record.pending_awaits).sorted_map) {
                 debug_print(f, pending_await);
             }
         }
@@ -3053,7 +3053,7 @@ struct SyncvTable
 
     void debug_print(FILE* f, pending_await_t await_id) const
     {
-        fprintf(f, "PendingAwait(barrier_index=%i, arrive_count=%i)\n",
+        fprintf(f, "PendingAwaitRay(barrier_index=%i, arrive_count=%i)\n",
                 int(pending_await_barrier_index(await_id)),
                 int(pending_await_arrive_count(await_id)));
     }
@@ -3225,7 +3225,7 @@ struct SyncvRealLogger
 
         if (vis_record.pending_awaits) {
             const HamsterPendingAwaitSet& set = env.get(vis_record.pending_awaits);
-            for (PendingAwait pending_await : set.sorted_map) {
+            for (PendingAwaitRay pending_await : set.sorted_map) {
                 auto p_excut_await = std::make_unique<ExcutPendingAwait>();
                 p_excut_await->barrier_id = pending_await.hamster_barrier_id.data;
                 p_excut_await->arrive_count = pending_await.arrive_count;
@@ -3352,7 +3352,7 @@ struct SyncvRealLogger
         data.visibility_set = std::move(debug.visibility_set);
         const auto& pending_awaits = debug.pending_await_list;
         for (size_t i = 0; i < pending_awaits.size(); ++i) {
-            const PendingAwait& await_id = pending_awaits[i];
+            const PendingAwaitRay& await_id = pending_awaits[i];
             data.pending_await_list.push_back(
                 LoggedPendingAwait{p_history_log->get_barrier_name(await_id.hamster_barrier_id), await_id.arrive_count}
             );

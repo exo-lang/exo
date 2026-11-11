@@ -14,59 +14,55 @@ namespace camspork
 
 struct SyncvTable;
 
-// NOTE: pending awaits don't seem to be represented here the same way as in the thesis.
-// The thesis describes TrArrive events as having infinite outbound PendingAwaits "up to infinity"
-// i.e. {PendingAwait(x, z^*, z_{await} \mid z_{await} \ge arrive_count)}
-// meanwhile TrAwait has a single inbound PendingAwait.
-// The actual software's PendingAwait object (here) seems to represent that entire infinite range.
-// Hence, the await implementation is responsible for matching any software PendingAwait with
-// sufficiently low arrive_count, not just an exact arrive_count.
-struct PendingAwait
+// A ray of thesis pending awaits: { PendingAwait(x, z^*_i, z_a) | z_a >= arrive_count },
+// i.e. the TrArrive outbound set (or trailing-barrier Aw_post) with x[z^*_i] = hamster_barrier_id
+// and arrive_count = z_arrive. We don't materialize single PendingAwaits.
+struct PendingAwaitRay
 {
     barrier_id hamster_barrier_id;
     int32_t arrive_count;
 
-    bool operator== (PendingAwait other) const
+    bool operator== (PendingAwaitRay other) const
     {
         return hamster_barrier_id == other.hamster_barrier_id && arrive_count == other.arrive_count;
     }
 
-    bool operator!= (PendingAwait other) const
+    bool operator!= (PendingAwaitRay other) const
     {
         return !(*this == other);
     }
 };
 
-inline bool operator< (PendingAwait lhs, barrier_id rhs) { return lhs.hamster_barrier_id < rhs; }
-inline bool operator< (barrier_id lhs, PendingAwait rhs) { return lhs < rhs.hamster_barrier_id; }
-inline bool operator< (PendingAwait lhs, PendingAwait rhs) { return lhs.hamster_barrier_id < rhs.hamster_barrier_id; }
-inline bool operator== (barrier_id lhs, PendingAwait rhs) { return lhs == rhs.hamster_barrier_id; }
-inline bool operator== (PendingAwait lhs, barrier_id rhs) { return lhs.hamster_barrier_id == rhs; }
-inline bool operator!= (barrier_id lhs, PendingAwait rhs) { return lhs != rhs.hamster_barrier_id; }
-inline bool operator!= (PendingAwait lhs, barrier_id rhs) { return lhs.hamster_barrier_id != rhs; }
+inline bool operator< (PendingAwaitRay lhs, barrier_id rhs) { return lhs.hamster_barrier_id < rhs; }
+inline bool operator< (barrier_id lhs, PendingAwaitRay rhs) { return lhs < rhs.hamster_barrier_id; }
+inline bool operator< (PendingAwaitRay lhs, PendingAwaitRay rhs) { return lhs.hamster_barrier_id < rhs.hamster_barrier_id; }
+inline bool operator== (barrier_id lhs, PendingAwaitRay rhs) { return lhs == rhs.hamster_barrier_id; }
+inline bool operator== (PendingAwaitRay lhs, barrier_id rhs) { return lhs.hamster_barrier_id == rhs; }
+inline bool operator!= (barrier_id lhs, PendingAwaitRay rhs) { return lhs != rhs.hamster_barrier_id; }
+inline bool operator!= (PendingAwaitRay lhs, barrier_id rhs) { return lhs.hamster_barrier_id != rhs; }
 
 // Adapters for old code using pre-Hamster barriers.
-using pending_await_t = PendingAwait;
+using pending_await_t = PendingAwaitRay;
 
-inline uint32_t pending_await_barrier_index(PendingAwait id)
+inline uint32_t pending_await_barrier_index(PendingAwaitRay id)
 {
     return id.hamster_barrier_id.data;
 }
 
-inline int32_t pending_await_arrive_count(PendingAwait id)
+inline int32_t pending_await_arrive_count(PendingAwaitRay id)
 {
     return id.arrive_count;
 }
 
-inline PendingAwait pack_pending_await(uint32_t barrier_index, int32_t arrive_count)
+inline PendingAwaitRay pack_pending_await(uint32_t barrier_index, int32_t arrive_count)
 {
-    return PendingAwait{barrier_id{barrier_index}, arrive_count};
+    return PendingAwaitRay{barrier_id{barrier_index}, arrive_count};
 }
 
 struct VisRecordDebugData
 {
     std::vector<TlSigInterval> visibility_set;
-    std::vector<PendingAwait> pending_await_list;
+    std::vector<PendingAwaitRay> pending_await_list;
     barrier_id free_on_arrive;
     qual_bits_t qual_tl_mask;
     uint64_t flags;  // vis_record_before_alloc_flag, vis_record_freed_flag (u64: keeps sizeof static_assert padding-free)
