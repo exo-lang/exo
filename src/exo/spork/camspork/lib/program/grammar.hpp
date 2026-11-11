@@ -882,7 +882,8 @@ struct stmt<24>
 //
 // Each AssignmentRecord in the buffer_shard window is initialized to have the
 // specified free_on_arrive value, and a Mutate VisRecord with an empty visibility
-// set, and PendingAwaits with arrive_count = 0 for each barrier in alloc_on_await_barriers.
+// set, and PendingAwaits with arrive_count = expected_arrive_count - 1
+// for each barrier in alloc_on_await_barriers.
 using SyncEnvManageRingBuffer = stmt<25>;
 template<>
 struct stmt<25>

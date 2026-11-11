@@ -735,7 +735,10 @@ struct SyncvTable
 
     // Allocate a new visibility record.
     // This will later need to be added to the memoization table.
-    template <bool ForceArriveCount0, VisRecordKind K, typename ThreadInit>
+    // Each { PendingAwait(x, z^*, z_await) | z_await >= z_arrive }
+    // is initialized with z_arrive being the current arrive count of x[z^*]
+    // unless ForceEac1 is true, in which case z_arrive = expected_arrive_count - 1.
+    template <bool ForceEac1, VisRecordKind K, typename ThreadInit>
     VisRecordListNode<K>& alloc_vis_record(
             const ThreadInit& thread_init,
             SyncvAccessInfo access,
@@ -787,11 +790,8 @@ struct SyncvTable
 
                 // NB: we don't check the ordering of the trailing barrier access vs. later Arrives
                 // (e.g. mbarrier expect-tx vs. complete-tx); acknowledged gap.
-                int32_t arrive_count = 0;
-                if (!ForceArriveCount0) {
-                    arrive_count = get(state_id).arrive_count;
-                }
-
+                HamsterBarrierState& bar_state = get(state_id);
+                const int32_t arrive_count = ForceEac1 ? bar_state.expected_arrive_count - 1 : bar_state.arrive_count;
                 new_set.sorted_map.data.insert(insert_iter, PendingAwait{bar_id, arrive_count});
                 incref(state_id);
             }
@@ -1559,7 +1559,7 @@ struct SyncvTable
     // Add a new visibility record, or return existing memoized one, constructed from the given thread cuboid
     // + qual_bits (in TlSigInterval format).
     // The returned ID is an owning reference (ownership count given by added_refcnt).
-    template <bool ForceArriveCount0, VisRecordKind K, typename ThreadInit>
+    template <bool ForceEac1, VisRecordKind K, typename ThreadInit>
     [[nodiscard]] nodepool::id<VisRecordListNode<K>> memoize_new_vis_record(
             const ThreadInit& thread_init,
             SyncvAccessInfo access,
@@ -1567,7 +1567,7 @@ struct SyncvTable
             uint32_t added_refcnt)
     {
         nodepool::id<VisRecordListNode<K>> new_vis_id;
-        auto& new_vis = alloc_vis_record<ForceArriveCount0, K>(thread_init, access, free_on_arrive_id, &new_vis_id);
+        auto& new_vis = alloc_vis_record<ForceEac1, K>(thread_init, access, free_on_arrive_id, &new_vis_id);
         CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 1, "expected 1 refcnt initially");
 
         // Either insert into memoization, or forward to existing duplicate.
