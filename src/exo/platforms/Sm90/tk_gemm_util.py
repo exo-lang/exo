@@ -765,7 +765,12 @@ def handwrite_row_col_ping_pong_gemm(config: GemmConfig):
     assert config.C_major == "row"
     assert config.ping_pong
     assert not config.A_in_rmem
-    assert config.bug in (GemmTestBug.none, GemmTestBug.wrong_wgmma_cg), "TODO"
+    assert config.bug in (
+        GemmTestBug.none,
+        GemmTestBug.wrong_wgmma_cg,
+        GemmTestBug.ping_pong_reorder_await_war,
+        GemmTestBug.ping_pong_reorder_arrive_raw,
+    ), f"{config.bug} not supported for ping-pong"
 
     # Each warp stores (16 x cta_N) tiles.
     D_tile_mem = Sm90_TkRmemTileD(cta_N)
@@ -1013,9 +1018,48 @@ def handwrite_row_col_ping_pong_gemm(config: GemmConfig):
                                                         Arrive(cuda_in_order) >> epi_order[cta_m, cta_n, mp + 1]
     # fmt: on
 
+    # Does nothing by default (this is just for the Exo test suite)
+    gemm = inject_ping_pong_main_loop_bug(gemm, config)
+
     gemm = sched_ping_pong_cut_iter_k(gemm)
     gemm = handwrite_final_changes(gemm, config)
     return gemm
+
+
+def inject_ping_pong_main_loop_bug(main_loop, config):
+    # Really hard-wired cursor movement since PAST doesn't search for Exo-GPU features.
+    # Applied to the iter_k loop of both ping-pong iterations (before the loop cut).
+    loops = main_loop.find_all("for iter_k in _:_")
+    assert len(loops) == 2
+    for loop_c in loops:
+        loop_c = main_loop.forward(loop_c)
+        iter_k_body = loop_c.body()
+        assert len(iter_k_body) == 2, "expected producer and consumer block"
+        producer_body = iter_k_body[0].body()
+
+        # There should be an Await loop, 2 TMA, an Arrive.
+        assert len(producer_body) == 4
+        await_stmt_idx = 0
+        await_c = producer_body[await_stmt_idx].only_child(2)
+        assert await_c.name() == "war"
+        assert await_c.first_sync_tl() == None
+        assert await_c.second_sync_tl() == cuda_async_proxy_retired
+        arrive_stmt_idx = 3
+        arrive_c = producer_body[arrive_stmt_idx].only_child(2)
+        assert arrive_c.name() == "raw"
+
+        # Await war after the A TMA (writes the slot before it's free).
+        if config.bug == GemmTestBug.ping_pong_reorder_await_war:
+            main_loop = reorder_stmts(
+                main_loop, producer_body[await_stmt_idx : await_stmt_idx + 2]
+            )
+        # Arrive raw before the B TMA (B's trailing barrier misses the Arrive).
+        if config.bug == GemmTestBug.ping_pong_reorder_arrive_raw:
+            main_loop = reorder_stmts(
+                main_loop, producer_body[arrive_stmt_idx - 1 : arrive_stmt_idx + 1]
+            )
+
+    return main_loop
 
 
 def sched_ping_pong_cut_iter_k(p):

@@ -4,6 +4,7 @@ import math
 import numpy as np
 import pytest
 import random
+import re
 
 from exo import *
 from exo.stdlib.scheduling import *
@@ -151,4 +152,7 @@ def test_Sm90a_gemm_remarks(compiler, golden):
     debug_log = get_global_debug_log()
     debug_log.write_all_impl()
     with open(str(compiler.workdir / "debug" / "gpu_gemm-analysis.py")) as f:
-        assert f.read() == golden
+        # Strip source line numbers (file.py:line:col -> file.py:<line>:col), so
+        # unrelated edits to tk_gemm_util.py don't churn the golden.
+        remarks = re.sub(r"(\.py):\d+:(\d+)", r"\1:<line>:\2", f.read())
+        assert remarks == golden

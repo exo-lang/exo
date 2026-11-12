@@ -298,7 +298,7 @@ def test_ping_pong_reorder_await_war(compiler):
     exc = "use_before_alloc HAZARD"
     error_remarks = [
         "use_before_alloc HAZARD @ A_smem[",
-        "war[0, 0, 0, 0]",
+        "pending await: war[0, 0, 0] arrive_count=255",
     ]
     sync_check_helper(compiler, gemm, exc, error_remarks, K_split=1)
 
@@ -315,6 +315,6 @@ def test_ping_pong_reorder_arrive_raw(compiler):
     exc = "HAZARD"
     error_remarks = [
         "HAZARD @ B_smem",
-        "pending await: raw[0, 0, 0, 0] arrive_count=64",
+        "pending await: raw[0, 0, 0] arrive_count=64",
     ]
     sync_check_helper(compiler, gemm, exc, error_remarks, K_split=1)
