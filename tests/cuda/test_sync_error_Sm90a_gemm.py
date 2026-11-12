@@ -9,7 +9,7 @@ from exo.stdlib.scheduling import *
 from exo.platforms.Sm90.tk_gemm_util import (
     handwrite_gemm,
     schedule_gemm,
-    ping_pong_sched_K_cluster,
+    schedule_ping_pong_gemm,
     GemmTestBug,
     GemmConfig,
     L_divisor,
@@ -35,10 +35,12 @@ def sync_check_helper(
     L=1,
     M=960,
     N=800,
-    K_cluster=720,
+    K_cluster: Optional[int] = 720,
     K_split,
 ):
     """Run sync_check on gemm proc.
+
+    K_cluster=None: the proc has no K_cluster argument (fixed K_cluster).
 
     If an empty exception_text is given, expect no sync error.
     Otherwise, expect a sync error, and expect each str
@@ -47,8 +49,13 @@ def sync_check_helper(
 
     """
 
+    # In proc argument order.
+    sizes = dict(L=L, M=M, N=N, K_split=K_split)
+    if K_cluster is not None:
+        sizes["K_cluster"] = K_cluster
+
     def run_check():
-        gemm.sync_check(L=L, M=M, N=N, K_cluster=K_cluster, K_split=K_split)
+        gemm.sync_check(**sizes)
 
     if not exception_text:
         run_check()
@@ -58,7 +65,7 @@ def sync_check_helper(
         assert exception_text in str(exc.value)
 
         proc_name_with_sizes = "-".join(
-            [str(gemm.name())] + [str(sz) for sz in (L, M, N, K_split, K_cluster)]
+            [str(gemm.name())] + [str(sz) for sz in sizes.values()]
         )
 
         debug_log = get_global_debug_log()
@@ -78,16 +85,42 @@ def test_ping_pong_positive(compiler):
 
 
 def test_schedule_ping_pong_positive(compiler):
-    """Scheduled ping-pong gemm (constant K_cluster)"""
-    config = replace(base_config, ping_pong=True)
-    gemm = schedule_gemm(config)  # Also sync_checks
-    sync_check_helper(compiler, gemm, K_split=1, K_cluster=ping_pong_sched_K_cluster)
+    """Scheduled ping-pong gemm (fixed K_cluster; the proc has no K_cluster arg)"""
+    config = replace(base_config, ping_pong=True, K_cluster=512)
+    gemm = schedule_ping_pong_gemm(config)  # Also sync_checks
+    sync_check_helper(compiler, gemm, K_split=1, K_cluster=None)
+
+
+def test_schedule_ping_pong_wrapper(compiler):
+    """schedule_gemm wraps the fixed-K_cluster gemm in a proc taking K_cluster,
+    and reports the fixed K_cluster to sporkbench as K_cluster_min = K_cluster_max."""
+    config = replace(base_config, ping_pong=True, K_cluster=512)
+    cases = []
+    gemm = schedule_gemm(config, cases)
+    assert [str(a.name()) for a in gemm.args()] == [
+        "L",
+        "M",
+        "N",
+        "K_split",
+        "K_cluster",
+        "A",
+        "B",
+        "C",
+    ]
+    assert str(gemm.name()) == config.make_proc_name(True)
+    assert gemm.name().endswith("_sched_K512")
+    [case] = cases
+    assert case["proc"] == str(gemm.name())
+    assert case["K_cluster_min"] == case["K_cluster_max"] == 512
+    assert case["args"] == ["L", "M", "N", "K_split", "K_cluster", "A", "B", "C"]
 
 
 def test_schedule_ping_pong_wrong_wgmma_cg(compiler):
     """As test_ping_pong_wrong_wgmma_cg, for the scheduled ping-pong gemm."""
-    config = replace(base_config, bug=GemmTestBug.wrong_wgmma_cg, ping_pong=True)
-    gemm = schedule_gemm(config)
+    config = replace(
+        base_config, bug=GemmTestBug.wrong_wgmma_cg, ping_pong=True, K_cluster=512
+    )
+    gemm = schedule_ping_pong_gemm(config)
     exc = "free_missing_arrive HAZARD"
     error_remarks = ["free_missing_arrive HAZARD @ free(B_smem["]  # A_smem OK too
     sync_check_helper(
@@ -96,7 +129,7 @@ def test_schedule_ping_pong_wrong_wgmma_cg(compiler):
         exc,
         error_remarks,
         K_split=1,
-        K_cluster=ping_pong_sched_K_cluster,
+        K_cluster=None,
     )
 
 

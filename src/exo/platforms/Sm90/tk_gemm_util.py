@@ -41,8 +41,6 @@ L_divisor = 1
 M_divisor = 16
 N_divisor = 16
 K_cluster_divisor = 16
-# schedule_gemm for ping-pong requires this constant K_cluster.
-ping_pong_sched_K_cluster = 512
 
 
 class GemmTestBug(Enum):
@@ -85,6 +83,9 @@ class GemmConfig:
     # Epilogue control
     enable_split_k: bool = False
     ping_pong: bool = False
+    # Exact K_cluster the gemm is specialized for. For now, required for the
+    # scheduled ping-pong gemm (schedule_gemm), and not supported otherwise.
+    K_cluster: Optional[int] = None
     # For sync_check testing, create wrong gemms
     bug: GemmTestBug = GemmTestBug.none
 
@@ -141,9 +142,11 @@ class GemmConfig:
         )
 
     def make_K_cluster_constraints(self, is_scheduled) -> dict:
-        if is_scheduled and self.ping_pong:
-            K = ping_pong_sched_K_cluster
-            return dict(K_cluster_divisor=K, K_cluster_max=K)
+        if self.K_cluster is not None:
+            K = self.K_cluster
+            return dict(
+                K_cluster_divisor=K_cluster_divisor, K_cluster_min=K, K_cluster_max=K
+            )
         return dict(K_cluster_divisor=K_cluster_divisor)
 
     def make_proc_name(self, is_scheduled) -> str:
@@ -166,8 +169,8 @@ class GemmConfig:
 
         if is_scheduled:
             suffix += "_sched"
-            if self.ping_pong:
-                suffix += f"_K{ping_pong_sched_K_cluster}"
+        if self.K_cluster is not None:
+            suffix += f"_K{self.K_cluster}"
 
         return (
             f"Sm90_tk_gemm_{A}_{B}_{C}_{D}_r{self.ring_depth}"
@@ -1463,6 +1466,7 @@ def handwrite_row_row_gemm(config: GemmConfig):
 
 
 def handwrite_gemm(config: GemmConfig, sporkbench_cases: Optional[list] = None):
+    assert config.K_cluster is None, "fixed K_cluster: scheduled ping-pong only"
     assert config.A_major == "row", "not supported"
     assert config.C_major == "row", "not supported"
 
@@ -1518,8 +1522,14 @@ def remove_tail_guards_keep_zero(p: Procedure, cursor):
 
 def schedule_gemm(config: GemmConfig, cases=None):
     if config.ping_pong:
-        return schedule_ping_pong_gemm(config, cases)
+        assert config.K_cluster is not None, "scheduled ping-pong needs fixed K_cluster"
+        inner = schedule_ping_pong_gemm(config)
+        gemm = wrap_fixed_K_cluster_gemm(inner, config)
+        if cases is not None:
+            cases.append(config.make_sporkbench_case(True))
+        return gemm
 
+    assert config.K_cluster is None, "fixed K_cluster: scheduled ping-pong only"
     # fmt: off
     assert config.A_major == "row", "not supported"
     assert config.B_major == "col", "not supported"
@@ -2054,7 +2064,7 @@ def schedule_gemm(config: GemmConfig, cases=None):
     return gemm
 
 
-def schedule_ping_pong_gemm(config: GemmConfig, cases=None):
+def schedule_ping_pong_gemm(config: GemmConfig):
     """Scheduled version of handwrite_row_col_ping_pong_gemm (see its docstring
     for the SMEM and mbarrier pattern), for constant K_cluster.
 
@@ -2063,7 +2073,8 @@ def schedule_ping_pong_gemm(config: GemmConfig, cases=None):
     (the handwritten kernel orders cta_m outside mp instead). The A/B ring buffer is
     staged per iter_k, then expanded over (mp, iter_k) and merged into one managed
     ring dimension indexed nk * mp + iter_k; mult_dim needs nk constant, hence
-    constant K_cluster. C_smem is expanded over mp (ring depth 1, guarded by
+    constant K_cluster (config.K_cluster), which is not a proc argument
+    (see wrap_fixed_K_cluster_gemm). C_smem is expanded over mp (ring depth 1, guarded by
     epi_order). Finally mp is unrolled, and each copy is warp specialized
     (producer, consumer{mp}).
 
@@ -2093,7 +2104,8 @@ def schedule_ping_pong_gemm(config: GemmConfig, cases=None):
     cluster_M = smem_M * ncta_M
     cluster_N = smem_N * ncta_N
     half_cluster_M = cluster_M // 2   # rows of the cluster tile per ping-pong iteration
-    K_CLUSTER = ping_pong_sched_K_cluster
+    K_CLUSTER = config.K_cluster
+    assert K_CLUSTER is not None
     nk = K_CLUSTER // smem_K
     assert K_CLUSTER % smem_K == 0
 
@@ -2108,15 +2120,14 @@ def schedule_ping_pong_gemm(config: GemmConfig, cases=None):
 
     @proc
     def gemm(
-            L: size, M: size, N: size, K_split: size, K_cluster: size,
-            A: A_type[L, M, K_split, K_cluster] @ CudaGmemLinear,
-            B: B_type[L, N, K_split, K_cluster] @ CudaGmemLinear,
+            L: size, M: size, N: size, K_split: size,
+            A: A_type[L, M, K_split, K_CLUSTER] @ CudaGmemLinear,
+            B: B_type[L, N, K_split, K_CLUSTER] @ CudaGmemLinear,
             C: C_type[L, M, N] @ CudaGmemLinear,
     ):
         assert L > 0
         assert M > 0
         assert N > 0
-        assert K_cluster == K_CLUSTER
         assert L % L_divisor == 0
         assert M % M_divisor == 0
         assert N % N_divisor == 0
@@ -2460,15 +2471,44 @@ def schedule_ping_pong_gemm(config: GemmConfig, cases=None):
     if enable_split_k:
         gemm = replace(gemm, gemm.find_loop("memset_batch"), cudaMemsetAsync0_3f32)
     gemm = simplify(gemm)
-    proc_name = config.make_proc_name(True)
+    proc_name = config.make_proc_name(True) + "_inner"
     gemm = rename(gemm, proc_name)
     if config.bug == GemmTestBug.none:
         K_split = 2 if enable_split_k else 1
-        gemm.sync_check(L=2, M=600, N=800, K_cluster=K_CLUSTER, K_split=K_split)
+        gemm.sync_check(L=2, M=600, N=800, K_split=K_split)
     else:
         print(f"NO SYNC CHECK %s" % (proc_name,))
 
-    if cases is not None:
-        cases.append(config.make_sporkbench_case(True))
-
     return gemm
+
+
+def wrap_fixed_K_cluster_gemm(inner: Procedure, config: GemmConfig):
+    """Wrap a gemm specialized for config.K_cluster (no K_cluster argument) in a
+    proc with the usual sporkbench gemm arguments; K_cluster is asserted equal
+    to config.K_cluster and otherwise discarded."""
+    A_type = config.get_A_ScalarInfo()
+    B_type = config.get_B_ScalarInfo()
+    C_type = config.get_C_ScalarInfo()
+    K_CLUSTER = config.K_cluster
+
+    @proc
+    def gemm(
+        L: size,
+        M: size,
+        N: size,
+        K_split: size,
+        K_cluster: size,
+        A: A_type[L, M, K_split, K_cluster] @ CudaGmemLinear,
+        B: B_type[L, N, K_split, K_cluster] @ CudaGmemLinear,
+        C: C_type[L, M, N] @ CudaGmemLinear,
+    ):
+        assert L > 0
+        assert M > 0
+        assert N > 0
+        assert K_cluster == K_CLUSTER
+        assert L % L_divisor == 0
+        assert M % M_divisor == 0
+        assert N % N_divisor == 0
+        inner(L, M, N, K_split, A, B, C)
+
+    return rename(gemm, config.make_proc_name(True))
