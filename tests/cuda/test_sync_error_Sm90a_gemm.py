@@ -8,6 +8,8 @@ from exo.stdlib.scheduling import *
 
 from exo.platforms.Sm90.tk_gemm_util import (
     handwrite_gemm,
+    schedule_gemm,
+    ping_pong_sched_K_cluster,
     GemmTestBug,
     GemmConfig,
     L_divisor,
@@ -73,6 +75,29 @@ def test_ping_pong_positive(compiler):
     config = replace(base_config, ping_pong=True)
     gemm = handwrite_gemm(config)
     sync_check_helper(compiler, gemm, K_split=1)
+
+
+def test_schedule_ping_pong_positive(compiler):
+    """Scheduled ping-pong gemm (constant K_cluster)"""
+    config = replace(base_config, ping_pong=True)
+    gemm = schedule_gemm(config)  # Also sync_checks
+    sync_check_helper(compiler, gemm, K_split=1, K_cluster=ping_pong_sched_K_cluster)
+
+
+def test_schedule_ping_pong_wrong_wgmma_cg(compiler):
+    """As test_ping_pong_wrong_wgmma_cg, for the scheduled ping-pong gemm."""
+    config = replace(base_config, bug=GemmTestBug.wrong_wgmma_cg, ping_pong=True)
+    gemm = schedule_gemm(config)
+    exc = "free_missing_arrive HAZARD"
+    error_remarks = ["free_missing_arrive HAZARD @ free(B_smem["]  # A_smem OK too
+    sync_check_helper(
+        compiler,
+        gemm,
+        exc,
+        error_remarks,
+        K_split=1,
+        K_cluster=ping_pong_sched_K_cluster,
+    )
 
 
 def test_split_k_positive(compiler):

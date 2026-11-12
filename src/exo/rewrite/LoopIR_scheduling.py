@@ -1898,7 +1898,8 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
 
 def DoSetDimSizeAnnotation(alloc_cursor, dim_idx, size_annotation):
     def update_size_coord(sz):
-        assert sz.type.is_size()
+        # Not just is_size(): e.g. mult_dim produces int-typed constant extents.
+        assert sz.type.is_indexable()
         return sz.update(type=LoopIR.Size(size_annotation))
 
     old_typ = alloc_cursor._node.type

@@ -41,6 +41,8 @@ L_divisor = 1
 M_divisor = 16
 N_divisor = 16
 K_cluster_divisor = 16
+# schedule_gemm for ping-pong requires this constant K_cluster.
+ping_pong_sched_K_cluster = 512
 
 
 class GemmTestBug(Enum):
@@ -131,12 +133,18 @@ class GemmConfig:
             L_divisor=L_divisor,
             M_divisor=M_divisor,
             N_divisor=N_divisor,
-            K_cluster_divisor=K_cluster_divisor,
+            **self.make_K_cluster_constraints(is_scheduled),
             K_split_max=256 if self.enable_split_k else 1,
             A_type=str(self.A_type),
             B_type=str(self.B_type),
             C_type=str(self.C_type),
         )
+
+    def make_K_cluster_constraints(self, is_scheduled) -> dict:
+        if is_scheduled and self.ping_pong:
+            K = ping_pong_sched_K_cluster
+            return dict(K_cluster_divisor=K, K_cluster_max=K)
+        return dict(K_cluster_divisor=K_cluster_divisor)
 
     def make_proc_name(self, is_scheduled) -> str:
         suffix = ""
@@ -158,6 +166,8 @@ class GemmConfig:
 
         if is_scheduled:
             suffix += "_sched"
+            if self.ping_pong:
+                suffix += f"_K{ping_pong_sched_K_cluster}"
 
         return (
             f"Sm90_tk_gemm_{A}_{B}_{C}_{D}_r{self.ring_depth}"
@@ -1507,6 +1517,9 @@ def remove_tail_guards_keep_zero(p: Procedure, cursor):
 
 
 def schedule_gemm(config: GemmConfig, cases=None):
+    if config.ping_pong:
+        return schedule_ping_pong_gemm(config, cases)
+
     # fmt: off
     assert config.A_major == "row", "not supported"
     assert config.B_major == "col", "not supported"
@@ -2037,5 +2050,425 @@ def schedule_gemm(config: GemmConfig, cases=None):
         cases.append(j_case)
 
     # TODO test cursors
+
+    return gemm
+
+
+def schedule_ping_pong_gemm(config: GemmConfig, cases=None):
+    """Scheduled version of handwrite_row_col_ping_pong_gemm (see its docstring
+    for the SMEM and mbarrier pattern), for constant K_cluster.
+
+    The ping-pong iteration mp starts as an ordinary seq loop (task_m -> mp -> cta_m
+    -> warpgroup rows), so each (cta_m, mp) gets a contiguous block of wg_M rows
+    (the handwritten kernel orders cta_m outside mp instead). The A/B ring buffer is
+    staged per iter_k, then expanded over (mp, iter_k) and merged into one managed
+    ring dimension indexed nk * mp + iter_k; mult_dim needs nk constant, hence
+    constant K_cluster. C_smem is expanded over mp (ring depth 1, guarded by
+    epi_order). Finally mp is unrolled, and each copy is warp specialized
+    (producer, consumer{mp}).
+
+    """
+    # fmt: off
+    assert config.A_major == "row", "not supported"
+    assert config.B_major == "col", "not supported"
+    assert config.C_major == "row", "not supported"
+    assert config.ping_pong
+    assert config.bug in (GemmTestBug.none, GemmTestBug.wrong_wgmma_cg), "not supported"
+    assert not config.A_in_rmem, "not supported"
+    assert config.swizzle == 128, "not supported"
+
+    A_type = config.get_A_ScalarInfo()
+    B_type = config.get_B_ScalarInfo()
+    C_type = config.get_C_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
+    swizzle = config.swizzle
+    enable_split_k = config.enable_split_k
+    smem_M = config.cta_M
+    smem_N = config.cta_N
+    smem_K = config.make_smem_K()
+    ring_depth = config.ring_depth
+    ncta_M = config.ncta_M
+    ncta_N = config.ncta_N
+    wg_M = smem_M // 2
+    cluster_M = smem_M * ncta_M
+    cluster_N = smem_N * ncta_N
+    half_cluster_M = cluster_M // 2   # rows of the cluster tile per ping-pong iteration
+    K_CLUSTER = ping_pong_sched_K_cluster
+    nk = K_CLUSTER // smem_K
+    assert K_CLUSTER % smem_K == 0
+
+    cuda_device_function_ctx = CudaDeviceFunction(
+        clusterDim=ncta_M * ncta_N,
+        warp_config=ping_pong_warp_config,
+        blocks_per_sm=1,
+    )
+    smem_box_A = config.make_smem_box_A()
+    smem_box_B = config.make_smem_box_B()
+    smem_box_C = config.make_smem_box_C()
+
+    @proc
+    def gemm(
+            L: size, M: size, N: size, K_split: size, K_cluster: size,
+            A: A_type[L, M, K_split, K_cluster] @ CudaGmemLinear,
+            B: B_type[L, N, K_split, K_cluster] @ CudaGmemLinear,
+            C: C_type[L, M, N] @ CudaGmemLinear,
+    ):
+        assert L > 0
+        assert M > 0
+        assert N > 0
+        assert K_cluster == K_CLUSTER
+        assert L % L_divisor == 0
+        assert M % M_divisor == 0
+        assert N % N_divisor == 0
+        if enable_split_k:
+            for memset_batch in seq(0, L):
+                for memset_m in seq(0, M):
+                    for memset_n in seq(0, N):
+                        C[memset_batch, memset_m, memset_n] = 0
+
+        A_tensorMap = A[:,:,:,:] @ Sm90_tensorMap(128, *smem_box_A)
+        B_tensorMap = B[:,:,:,:] @ Sm90_tensorMap(128, *smem_box_B)
+        C_tensorMap = C[:,:,:] @ Sm90_tensorMap(128, *smem_box_C)
+
+        for batch in seq(0, L):
+            for task_k in seq(0, K_split):
+                for m in seq(0, M):
+                    for n in seq(0, N):
+                        D_rmem: f32
+                        D_rmem = 0
+                        for k in seq(0, K_CLUSTER):
+                            D_rmem += A_tensorMap[batch, m, task_k, k] * B_tensorMap[batch, n, task_k, k]
+                        if enable_split_k:
+                            C_tensorMap[batch, m, n] += D_rmem
+                        else:
+                            C_tensorMap[batch, m, n] = D_rmem
+
+    gemm = simplify(gemm)
+    batch_loop = gemm.find_loop("batch")
+    task_k_loop = gemm.find_loop("task_k")
+    m_loop = gemm.find_loop("m")
+    n_loop = gemm.find_loop("n")
+    k_loop = gemm.find_loop("k")
+    D_rmem = gemm.find_alloc_or_arg("D_rmem")
+    D_zero = gemm.find("D_rmem = 0")
+    C_assign = gemm.find("_ += D_rmem" if enable_split_k else "_ = D_rmem")
+
+    # Task loops (as coop), but M is divided task_m -> mp -> cta_m -> wg rows:
+    # m = task_m * cluster_M + mp * (ncta_M * wg_M) + cta_m * wg_M + sub_wg_m.
+    # (The handwritten kernel instead orders cta_m outside mp; either way each
+    # (cta_m, mp) gets a contiguous block of wg_M rows.)
+    gemm = set_loop_mode(gemm, batch_loop, CudaTasks)
+    gemm = set_loop_mode(gemm, task_k_loop, CudaTasks)
+    gemm = divide_loop(gemm, m_loop, cluster_M, ("task_m", "sub_task_m"), tail="guard")
+    task_m_loop = gemm.forward(m_loop)
+    sub_task_m_loop = task_m_loop.only_child()
+    gemm = set_loop_mode(gemm, task_m_loop, CudaTasks)
+    gemm = divide_loop(gemm, n_loop, cluster_N, ("task_n", "sub_task_n"), tail="guard")
+    task_n_loop = gemm.forward(n_loop)
+    sub_task_n_loop = task_n_loop.only_child()
+    gemm = set_loop_mode(gemm, task_n_loop, CudaTasks)
+    gemm = wrap_with_context(gemm, batch_loop, cuda_device_function_ctx)
+    for i in range(3):
+        gemm = lift_scope(gemm, task_n_loop)
+
+    gemm = divide_loop(gemm, sub_task_m_loop, half_cluster_M, ("mp", "sub_mp"), perfect=True)
+    mp_loop = gemm.forward(sub_task_m_loop)
+    sub_mp_loop = mp_loop.only_child()
+    gemm = divide_loop(gemm, sub_mp_loop, wg_M, ("cta_m", "sub_wg_m"), perfect=True)
+    cta_m_loop = gemm.forward(sub_mp_loop)
+    sub_wg_m = cta_m_loop.only_child()
+    gemm = set_loop_mode(gemm, cta_m_loop, CudaThreads(unit=ncta_N * cuda_cta_in_cluster))
+    gemm = divide_loop(gemm, sub_task_n_loop, smem_N, ("cta_n", "sub_cta_n"), perfect=True)
+    cta_n_loop = gemm.forward(sub_task_n_loop)
+    gemm = set_loop_mode(gemm, cta_n_loop, CudaThreads(unit=cuda_cta_in_cluster))
+    # Move cta_n loop to be just under cta_m loop.
+    gemm = lift_scope(gemm, cta_n_loop)
+    gemm = lift_scope(gemm, cta_n_loop)
+
+    # Warpgroup M structure: ms (64), mw (warp, 16), mi (1).
+    gemm = divide_loop(gemm, sub_wg_m, 16, ("ms_mw", "mi"), perfect=True)
+    gemm = divide_loop(gemm, sub_wg_m, 4, ("ms", "mw"), perfect=True)
+    ms_loop = gemm.forward(sub_wg_m)
+    gemm = set_loop_mode(gemm, ms_loop, Seq(pragma_unroll=2))
+
+    # D_rmem per (mp iteration): [cta_m, cta_n, mw, ms, mi, n]
+    gemm = expand_dim(gemm, D_rmem, smem_N, "sub_cta_n")
+    gemm = expand_dim(gemm, D_rmem, 16, "mi")
+    gemm = expand_dim(gemm, D_rmem, wg_M // 64, "ms")
+    gemm = expand_dim(gemm, D_rmem, 4, "mw")
+    gemm = expand_dim(gemm, D_rmem, ncta_N, "cta_n")
+    gemm = expand_dim(gemm, D_rmem, ncta_M, "cta_m")
+    gemm = set_memory(gemm, D_rmem, Sm90_TkRmemTileD(smem_N))
+    D_rmem = gemm.forward(D_rmem)
+
+    # Main loop: as coop, but lift iter_k only up to (just under) mp.
+    gemm = divide_loop(gemm, k_loop, smem_K, ("iter_k", "sub_iter_k"), perfect=True)
+    iter_k_loop = gemm.forward(k_loop)
+    D_zero = gemm.forward(D_zero)
+    gemm = add_loop(gemm, D_zero, "iter_k", nk, guard=True)
+    iter_k_loop = gemm.forward(iter_k_loop)
+    gemm = fuse(gemm, iter_k_loop.prev(), iter_k_loop)
+    iter_k_loop = gemm.forward(iter_k_loop.prev())
+    gap_after_main = iter_k_loop.after()
+    k_lifts = 0
+    parent = iter_k_loop.parent()
+    while not (isinstance(parent, ForCursor) and parent.name() == "mp"):
+        k_lifts += 1
+        parent = parent.parent()
+    gemm = lift_alloc(gemm, D_rmem, n_lifts=k_lifts)
+    gemm = fission(gemm, gap_after_main, n_lifts=k_lifts)
+    for i in range(k_lifts):
+        gemm = lift_scope(gemm, iter_k_loop)
+    iter_k_loop = gemm.forward(iter_k_loop)
+    D_rmem = gemm.forward(D_rmem)
+
+    # Barriers at task scope (above the mp loop). Logical ring slot: mp * nk + iter_k.
+    mp_loop = gemm.forward(mp_loop)
+    raw_dims = [ncta_M, ncta_N, 2 * nk]
+    war_dims = [ncta_M, ncta_N, 2 * nk + ring_depth]
+    gemm = insert_barrier_alloc(gemm, mp_loop.before(), "raw", raw_dims, CudaMbarrierPreArrive(0), 2, ring_depth)
+    gemm = insert_barrier_alloc(gemm, mp_loop.before(), "war", war_dims, CudaMbarrierPreArrive(ring_depth), 2, ring_depth)
+
+    # Stage A_smem, B_smem around the ms loop (one warpgroup's main loop body).
+    iter_k_loop = gemm.forward(iter_k_loop)
+    ms_main_loop = iter_k_loop.only_child(3)
+    assert ms_main_loop.name() == "ms"
+    gemm = stage_mem(gemm, ms_main_loop,
+        f"A_tensorMap[batch, "
+        f"task_m * {cluster_M} + mp * {half_cluster_M} + cta_m * {wg_M} : "
+        f"task_m * {cluster_M} + mp * {half_cluster_M} + cta_m * {wg_M} + {wg_M}, "
+        f"task_k, iter_k * {smem_K}: (iter_k + 1) * {smem_K}]",
+        "A_smem", False, Sm90_SmemSwizzled(128))
+    gemm = stage_mem(gemm, ms_main_loop,
+        f"B_tensorMap[batch, "
+        f"(task_n * {ncta_N} + cta_n) * {smem_N} : (task_n * {ncta_N} + cta_n + 1) * {smem_N}, "
+        f"task_k, iter_k * {smem_K}: (iter_k + 1) * {smem_K}]",
+        "B_smem", False, Sm90_SmemSwizzled(128))
+    A_smem = gemm.find_alloc_or_arg("A_smem")
+    B_smem = gemm.find_alloc_or_arg("B_smem")
+    gemm = simplify(gemm)
+
+    # One ring buffer for both ping-pong iterations: [2, nk] -> [2 * nk]
+    # (mult_dim needs the low dim, nk, to be constant: hence constant K_cluster).
+    for smem_cursor in (A_smem, B_smem):
+        gemm = expand_dim(gemm, smem_cursor, nk, "iter_k")
+        gemm = expand_dim(gemm, smem_cursor, 2, "mp")
+        gemm = mult_dim(gemm, smem_cursor, 0, 1)
+        gemm = expand_dim(gemm, smem_cursor, ncta_N, "cta_n")
+        gemm = expand_dim(gemm, smem_cursor, ncta_M, "cta_m")
+        gemm = lift_alloc(gemm, smem_cursor, n_lifts=4)
+        gemm = set_dim_size_annotation(gemm, smem_cursor, 2, ring_buffer_by(ring_depth))
+        gemm = set_ring_guarded_by(gemm, smem_cursor, gemm.find_alloc_or_arg("war"))
+
+    # Fission CTA loops before and after the B_smem load (as coop).
+    ms_main_loop = gemm.forward(ms_main_loop)
+    B_smem_loop = ms_main_loop.prev()
+    A_smem_loop = B_smem_loop.prev()
+    gemm = fission(gemm, B_smem_loop.before(), n_lifts=2)
+    gemm = fission(gemm, B_smem_loop.after(), n_lifts=2)
+    # B multicast: cta_n outer, cta_m inner.
+    A_smem_loop = gemm.forward(A_smem_loop)
+    B_smem_loop = gemm.forward(B_smem_loop)
+    B_smem_cta_n_loop = B_smem_loop.parent()
+    B_smem_cta_m_loop = B_smem_cta_n_loop.parent()
+    gemm = reorder_loops(gemm, B_smem_cta_m_loop)
+    gemm = update_loop_mode(gemm, B_smem_cta_n_loop, unit=ncta_M * cuda_cta_in_cluster_strided(ncta_N))
+    gemm = update_loop_mode(gemm, B_smem_cta_m_loop, unit=cuda_cta_in_cluster)
+
+    slot = f"{nk} * mp + iter_k"
+    gemm = insert_await(gemm, A_smem_loop.before(), f"war[cta_m, cta_n, {slot}]", cuda_async_proxy_retired, 0)
+    gemm = fission(gemm, A_smem_loop.before(), n_lifts=1)
+    gemm = insert_arrive(gemm, B_smem_loop.after(), cuda_async_proxy_retired, (f"raw[cta_m, :, {slot}]", f"raw[:, cta_n, {slot}]"))
+    gemm = fission(gemm, B_smem_loop.after(), n_lifts=1)
+
+    # Substitute multicast TMA.
+    A_smem_loop = gemm.forward(A_smem_loop)
+    A_tma = A_smem_loop.parent()
+    B_smem_loop = gemm.forward(B_smem_loop)
+    B_tma = B_smem_loop.parent()
+    gemm = unsafe_remove_if(gemm, A_smem_loop, True)
+    A_tma = gemm.forward(A_tma)
+    gemm = replace(gemm, A_tma, Sm90_tma_load_multicast_2d.partial(cta_stride=1, swizzle=swizzle, smem_box=smem_box_A))
+    gemm = set_trailing_barrier_expr(gemm, A_tma, f"raw[cta_m, :, {slot}]")
+    gemm = unsafe_remove_if(gemm, B_smem_loop, True)
+    gemm = replace(gemm, B_tma, Sm90_tma_load_multicast_2d.partial(cta_stride=ncta_N, swizzle=swizzle, smem_box=smem_box_B))
+    gemm = set_trailing_barrier_expr(gemm, B_tma, f"raw[:, cta_n, {slot}]")
+
+    # Consumer: Await raw, wgmma (as coop), commit group per ping-pong iteration.
+    ms_main_loop = gemm.forward(ms_main_loop)
+    cta_n_main_loop = ms_main_loop.parent()
+    gemm = insert_await(gemm, ms_main_loop.before(), f"raw[cta_m, cta_n, {slot}]", cuda_generic_and_async_proxy, 0)
+    mp_loop = gemm.forward(mp_loop)
+    gemm = insert_barrier_alloc(gemm, mp_loop.body()[0].after(), "wgmma_cg", [ncta_M, ncta_N], Sm90_WgmmaCommitGroup, None, None)
+    ms_main_loop = gemm.forward(ms_main_loop)
+    wgmma_mw_cursor = ms_main_loop.only_child(1)
+    assert wgmma_mw_cursor.name() == "mw"
+    gemm = remove_tail_guards_keep_zero(gemm, ms_main_loop)
+    gemm = replace(gemm, wgmma_mw_cursor, Sm90_tk_mma_row_col_zi)
+    gemm = insert_fence(gemm, ms_main_loop.before(), wgmma_fence_1, wgmma_fence_2)
+    gemm = insert_arrive(gemm, ms_main_loop.after(), wgmma_async, "wgmma_cg[cta_m, cta_n]")
+
+    # Consumer ordering tokens + epilogue sync barriers (task scope).
+    mp_loop = gemm.forward(mp_loop)
+    for name in ("mma_order", "epi_order"):
+        gemm = insert_barrier_alloc(gemm, mp_loop.before(), name, [ncta_M, ncta_N, 3], CudaMbarrierPreArrive(1), 2, 2)
+    gemm = insert_barrier_alloc(gemm, mp_loop.before(), "epi_smem_ready", [ncta_M, ncta_N, 2], CudaMbarrierPreArrive(0), 2, 2)
+
+    # mma tail: Await all wgmma, free the last slot. Fission off the epilogue's CTA loops.
+    cta_m_epilogue = find_parent_loop(gemm, C_assign, "cta_m")
+    cta_n_epilogue = cta_m_epilogue.only_child()
+    gemm = insert_await(gemm, cta_n_epilogue.body().before(), "wgmma_cg[cta_m, cta_n]", cuda_generic_and_async_proxy, 0)
+    cta_n_epilogue = gemm.forward(cta_n_epilogue)
+    tail_await = cta_n_epilogue.body()[0]
+    gemm = fission(gemm, tail_await.after(), n_lifts=2)
+    cta_m_epilogue = gemm.forward(cta_m_epilogue).next()
+    tail_await = gemm.forward(tail_await)
+    # Pass the mma token after the last wgmma is issued, before waiting for it.
+    gemm = insert_arrive(gemm, tail_await.before(), cuda_in_order, "mma_order[cta_m, cta_n, mp + 1]")
+    gemm = insert_arrive(gemm, tail_await.after(), config.consumer_war_sync_tl(), [
+        f"war[cta_m, :, {nk} * mp + {nk + ring_depth - 1}]",
+        f"war[:, cta_n, {nk} * mp + {nk + ring_depth - 1}]",
+    ])
+
+    # Epilogue: stage D_rmem -> C_smem (as coop), but per ping-pong iteration,
+    # with one physical buffer shared by both iterations (ring dim mp, depth 1).
+    gemm = unsafe_remove_if(gemm, cta_m_epilogue, True)
+    cta_m_epilogue = gemm.forward(cta_m_epilogue)
+    epilogue_ms_loop = cta_m_epilogue.find("for ms in _:_")
+    gemm = stage_mem(gemm, epilogue_ms_loop,
+        f"D_rmem[cta_m, cta_n, 0:4, 0:{wg_M // 64}, 0:16, 0:{smem_N}]",
+        "C_smem", False, Sm90_SmemSwizzled(swizzle))
+    C_smem = gemm.find_alloc_or_arg("C_smem")
+    C_smem_init = C_smem.next()
+    C_smem = gemm.forward(C_smem)
+    gemm = expand_dim(gemm, C_smem, 2, "mp")
+    gemm = expand_dim(gemm, C_smem, ncta_N, "cta_n")
+    gemm = expand_dim(gemm, C_smem, ncta_M, "cta_m")
+    gemm = simplify(gemm)
+    gemm = lift_alloc(gemm, C_smem, n_lifts=3)
+    gemm = set_dim_size_annotation(gemm, C_smem, 2, ring_buffer_by(1))
+    gemm = set_ring_guarded_by(gemm, C_smem, gemm.find_alloc_or_arg("epi_order"))
+
+    advice: CudaTkRsInstrAdvice = cuda_tk_store_rs_advice(16, smem_N, dst=C_type, src=D_type, swizzle=swizzle)
+    store_smem = advice.instr
+    outer_N = advice.outer_cols
+    inner_N = advice.inner_cols
+    #   Before: [cta_m, cta_n, mp, mw, ms, mi, n]
+    #   Middle: [cta_m, cta_n, mp, outer_N, ms, mw, mi, inner_N]
+    #   After:  [cta_m, cta_n, mp, outer_N, m, inner_N]
+    gemm = divide_dim(gemm, C_smem, 6, inner_N)
+    gemm = rearrange_dim(gemm, C_smem, [0, 1, 2, 6, 4, 3, 5, 7])
+    for m_dim in range(0, 2):
+        gemm = mult_dim(gemm, C_smem, 4, 5)
+
+    C_smem_init = gemm.forward(C_smem_init)
+    gemm = set_loop_mode(gemm, C_smem_init, CudaThreads(unit=cuda_warp))
+    gemm = set_loop_mode(gemm, C_smem_init.only_child(1), Seq(pragma_unroll=2))
+    gemm = divide_loop(gemm, C_smem_init.only_child(3), inner_N, ("no", "ni"), perfect=True)
+    gemm = simplify(gemm)
+    gemm = replace(gemm, C_smem_init.only_child(2), store_smem)
+
+    # TMA store of C_smem (fuse M loops, divide N loop), as coop.
+    epilogue_ms_loop = find_parent_loop(gemm, C_assign, "ms")
+    gemm = fission(gemm, epilogue_ms_loop.before(), n_lifts=1)
+    epilogue_ms_loop = gemm.forward(epilogue_ms_loop)
+    epilogue_sub_cta_n_loop = epilogue_ms_loop.only_child(3)
+    assert epilogue_sub_cta_n_loop.name() == "sub_cta_n"
+    gemm = divide_loop(gemm, epilogue_sub_cta_n_loop, inner_N, ("tma_no", "tma_ni"), perfect=True)
+    epilogue_ms_loop = gemm.forward(epilogue_ms_loop)
+    for m_dim in range(1, -1, -1):
+        gemm = mult_loops(gemm, epilogue_ms_loop.only_child(m_dim), "tma_m")
+        gemm = simplify(gemm)
+        epilogue_ms_loop = gemm.forward(epilogue_ms_loop)
+    tma_to_gmem = epilogue_ms_loop
+    assert tma_to_gmem.only_child(1).name() == "tma_no"
+    gemm = reorder_loops(gemm, tma_to_gmem)
+    tma_to_gmem = gemm.forward(tma_to_gmem)
+    tma_no_loop = tma_to_gmem.parent()
+    assert tma_no_loop.name() == "tma_no"
+    tma_instr = Sm90_tma_reduce_add_2d if enable_split_k else Sm90_tma_store_2d
+    gemm = replace(gemm, tma_to_gmem, tma_instr.partial(swizzle=swizzle, smem_box=smem_box_C))
+
+    # Epilogue sync. Store loop: Await epi_order[mp] before, epi_smem_ready after.
+    tma_no_loop = gemm.forward(tma_no_loop)
+    tma_cta_n_loop = tma_no_loop.parent()
+    store_cta_n_loop = tma_cta_n_loop.prev()
+    store_loop = store_cta_n_loop.body()[0]
+    gemm = insert_await(gemm, store_loop.before(), "epi_order[cta_m, cta_n, mp]", cuda_in_order, 0)
+    store_loop = gemm.forward(store_loop)
+    gemm = insert_await(gemm, store_loop.after(), "epi_smem_ready[cta_m, cta_n, mp]", cuda_generic_and_async_proxy, 0)
+    gemm = insert_arrive(gemm, store_loop.after(), cuda_in_order, "epi_smem_ready[cta_m, cta_n, mp]")
+    # TMA store by warp 0 of the consumer warpgroup; then pass the epi_order token.
+    tma_no_loop = gemm.forward(tma_no_loop)
+    gemm = insert_barrier_alloc(gemm, tma_no_loop.before(), "tma_cg", [], Sm90_TmaCommitGroup, None)
+    tma_no_loop = gemm.forward(tma_no_loop)
+    gemm = insert_arrive(gemm, tma_no_loop.after(), cuda_in_order, "epi_order[cta_m, cta_n, mp + 1]")
+    gemm = insert_await(gemm, tma_no_loop.after(), "tma_cg", cuda_in_order, 0)
+    gemm = insert_arrive(gemm, tma_no_loop.after(), tma_to_gmem_async, "tma_cg")
+    tma_cta_n_loop = gemm.forward(tma_cta_n_loop)
+    gemm = wrap_with_context(gemm, tma_cta_n_loop.body(), CudaWarps(0, 1))
+
+    # Await the mma token before the main loop.
+    iter_k_loop = gemm.forward(iter_k_loop)
+    gemm = insert_pass(gemm, iter_k_loop.before())
+    pass_c = gemm.forward(iter_k_loop).prev()
+    gemm = add_loop(gemm, pass_c, "cta_m", ncta_M)
+    gemm = add_loop(gemm, pass_c, "cta_n", ncta_N)
+    pass_c = gemm.forward(pass_c)
+    gemm = set_loop_mode(gemm, pass_c.parent(), CudaThreads(unit=cuda_cta_in_cluster))
+    gemm = set_loop_mode(gemm, pass_c.parent().parent(), CudaThreads(unit=ncta_N * cuda_cta_in_cluster))
+    gemm = insert_await(gemm, pass_c.after(), "mma_order[cta_m, cta_n, mp]", cuda_in_order, 0)
+    gemm = delete_pass(gemm)
+
+    # Cut iter_k at 1; for iter_k >= 1, wait for the previous wgmma, then free its slot.
+    iter_k_loop = gemm.forward(iter_k_loop)
+    gemm = cut_loop(gemm, iter_k_loop, 1)
+    iter_k_loop = gemm.forward(iter_k_loop).next()
+    cg_arrive = iter_k_loop.body()[-1].only_child(1).body()[-1]
+    assert isinstance(cg_arrive, SyncCursor) and cg_arrive.name() == "wgmma_cg"
+    should_be_1 = 2 if config.bug == GemmTestBug.wrong_wgmma_cg else 1
+    gemm = insert_arrive(gemm, cg_arrive.after(), config.consumer_war_sync_tl(), (
+        f"war[cta_m, :, {nk} * mp + iter_k + {ring_depth - 1}]",
+        f"war[:, cta_n, {nk} * mp + iter_k + {ring_depth - 1}]",
+    ))
+    gemm = insert_await(gemm, cg_arrive.after(), "wgmma_cg[cta_m, cta_n]", cuda_generic_and_async_proxy, should_be_1)
+    gemm = simplify(gemm)
+
+    # Unroll the ping-pong iteration, then warp-specialize each copy.
+    gemm = unroll_loop(gemm, gemm.find_loop("mp"))
+    gemm = simplify(gemm)
+    iter_k_loops = gemm.find_all("for iter_k in _:_")
+    assert len(iter_k_loops) == 4
+    for i, loop_c in enumerate(iter_k_loops):
+        mp = i // 2
+        consumer = CudaWarps(name=f"consumer{mp}")
+        loop_c = gemm.forward(loop_c)
+        # [war Await + A TMA, B TMA + raw Arrive, consumer]
+        assert len(loop_c.body()) == 3
+        gemm = wrap_with_context(gemm, loop_c.body()[2], consumer)
+        loop_c = gemm.forward(loop_c)
+        gemm = wrap_with_context(gemm, loop_c.body()[0:2], CudaWarps(0, 1, name="producer"))
+        loop_c = gemm.forward(loop_c)
+        if i % 2 == 0:
+            gemm = wrap_with_context(gemm, loop_c.prev(), consumer)  # mma_order Await
+        else:
+            tail = loop_c.next()
+            epilogue = tail.next()
+            gemm = wrap_with_context(gemm, epilogue, consumer)
+            gemm = wrap_with_context(gemm, gemm.forward(tail), consumer)
+
+    if enable_split_k:
+        gemm = replace(gemm, gemm.find_loop("memset_batch"), cudaMemsetAsync0_3f32)
+    gemm = simplify(gemm)
+    proc_name = config.make_proc_name(True)
+    gemm = rename(gemm, proc_name)
+    if config.bug == GemmTestBug.none:
+        K_split = 2 if enable_split_k else 1
+        gemm.sync_check(L=2, M=600, N=800, K_cluster=K_CLUSTER, K_split=K_split)
+    else:
+        print(f"NO SYNC CHECK %s" % (proc_name,))
+
+    if cases is not None:
+        cases.append(config.make_sporkbench_case(True))
 
     return gemm
