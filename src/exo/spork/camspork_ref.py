@@ -68,7 +68,8 @@ Typical test (tests/cuda/test_camspork_trace.py)
     def test_bar_negative(compiler):      # both camspork and the reference must reject;
         check_both_fail(mkproc_bar(), mkref_bar)   # the trace is not inspected
 
-* Probes are StrElemNames; the StrVarName must name exactly one Sym in the proc.
+* Probes are StrElemNames; the StrVarName must name exactly one Sym in the proc, unless
+  check_trace(..., var_cursors={x: cursor}) gives the intended variable's cursor.
   Only sync-checked variables have records: written, non-sync-exempt memory.
   Barrier variables additionally report arrive/await counts.
 * The reference must issue the same sync statements, in the same order, as camspork
@@ -1176,18 +1177,6 @@ class TraceEntry:
         }
 
 
-@dataclass(slots=True)
-class CamsporkTraceRequest:
-    """Passed as Procedure.sync_check(_camspork_trace=...).
-
-    sync_check sets stmt_srcinfo (camspork stmt_id -> Exo source location str)
-    for parse_trace."""
-
-    filename: str
-    probes: List[StrElemName]
-    stmt_srcinfo: Optional[Callable[[int], str]] = None
-
-
 def parse_trace(
     filename: str, stmt_srcinfo: Optional[Callable[[int], str]] = None
 ) -> List[TraceEntry]:
@@ -1312,8 +1301,18 @@ def access_quals(mem, instr_tl, *, convergent: Optional[bool] = None) -> AccessQ
     )
 
 
-def check_trace(p, ref: SyncEnvRef, tmp_path, **sizes) -> List[str]:
+def check_trace(
+    p,
+    ref: SyncEnvRef,
+    tmp_path,
+    *,
+    var_cursors: Optional[Dict[StrVarName, object]] = None,
+    **sizes,
+) -> List[str]:
     """sync_check p with ref.probes traced, then compare with the reference trace.
+    var_cursors: probed StrVarName -> AllocCursor / ArgCursor of the intended
+    variable, for names shared by several variables of the proc (see
+    sync_check.SyncCheckTraceRequest).
 
     Like excut: both traces go to disk in the same JSONL schema and are read back
     with the same parser; readable .txt dumps of both sit next to them.
@@ -1321,8 +1320,14 @@ def check_trace(p, ref: SyncEnvRef, tmp_path, **sizes) -> List[str]:
     camspork entry (vacuous probe)."""
     from .timelines import Qual_tl
 
-    request = CamsporkTraceRequest(str(tmp_path / "camspork_trace.jsonl"), ref.probes)
-    p.sync_check(_camspork_trace=request, **sizes)
+    from .sync_check import SyncCheckTraceRequest
+
+    request = SyncCheckTraceRequest(
+        str(tmp_path / "camspork_trace.jsonl"),
+        [(str(elem.var), elem.idx) for elem in ref.probes],
+        {str(var): cursor for var, cursor in (var_cursors or {}).items()},
+    )
+    p.sync_check(_sync_check_trace=request, **sizes)
     ref_path = str(tmp_path / "reference_trace.jsonl")
     ref.write_trace(ref_path)
 

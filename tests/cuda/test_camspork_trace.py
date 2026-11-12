@@ -16,7 +16,7 @@ from exo import proc, instr, ring_buffer_by
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
-from exo.stdlib.scheduling import simplify
+from exo.stdlib.scheduling import simplify, unroll_loop
 from exo.spork import timelines
 from exo.spork.timelines import (
     cuda_in_order_instr,
@@ -1504,3 +1504,68 @@ def test_tasks_2d_transposed_negative(compiler, tmp_path):
     errors = check_trace(mkproc_tasks_2d(), ref, tmp_path)
     assert errors
     assert "threads" in errors[0]
+
+
+# =============================================================================
+# Probing one of several same-named variables (var_cursors): unrolling duplicates
+# the x alloc, so the name x alone is ambiguous.
+# =============================================================================
+
+
+def mkproc_unrolled_x():
+    @proc
+    def proc_unrolled_x(g: f32[2, 32] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                for i in seq(0, 2):
+                    x: f32[32] @ CudaSmemLinear
+                    for t in cuda_threads(0, 32):
+                        x[t] = 0
+                    Fence(cuda_in_order, cuda_in_order)
+                    for t in cuda_threads(0, 32):
+                        g[i, t] = x[t]
+                    Fence(cuda_in_order, cuda_in_order)
+
+    return unroll_loop(proc_unrolled_x, "i")
+
+
+def test_probe_cursor_unrolled(compiler, tmp_path):
+    """Trace only the second unrolled copy of x (the first is unprobed, so the
+    reference may give it any name)."""
+    p = mkproc_unrolled_x()
+    x_copy0 = StrVarName("x_copy0")
+    ref = SyncEnvRef([x[0], x[31], g[1, 0]], threads_per_task=32)
+    task = ref.task_threads()
+    ref.alloc(g, (2, 32))
+
+    def task_body():
+        for i, var in enumerate([x_copy0, x]):
+            ref.alloc(var, (32,))
+            for t in range(32):
+                ref.mutate(var[t], [t], quals=smem_quals(convergent=True))
+            ref.fence(task, IN_ORDER, IN_ORDER)
+            for t in range(32):
+                ref.read(var[t], [t], quals=smem_quals(convergent=True))
+                ref.mutate(g[i, t], [t], quals=gmem_quals(convergent=True))
+            ref.fence(task, IN_ORDER, IN_ORDER)
+            free_smem(ref, var)
+
+    ref.cuda_device_function(lambda: ref.device_task(0, task_body))
+    x_alloc = p.find("x : _ #1")
+    assert_no_errors(check_trace(p, ref, tmp_path, var_cursors={x: x_alloc}))
+
+
+def test_probe_cursor_ambiguous_name(compiler, tmp_path):
+    """Without var_cursors, the unrolled name x is ambiguous."""
+    ref = SyncEnvRef([x[0]], threads_per_task=32)
+    with pytest.raises(AssertionError, match="ambiguous"):
+        check_trace(mkproc_unrolled_x(), ref, tmp_path)
+
+
+def test_probe_cursor_name_mismatch(compiler, tmp_path):
+    """var_cursors must map a name to a cursor of a variable with that name
+    (here, x to the argument g): the trace only names variables by str(Sym)."""
+    p = mkproc_unrolled_x()
+    ref = SyncEnvRef([x[0]], threads_per_task=32)
+    with pytest.raises(AssertionError, match="maps to a cursor of variable g"):
+        check_trace(p, ref, tmp_path, var_cursors={x: p.args()[0]})

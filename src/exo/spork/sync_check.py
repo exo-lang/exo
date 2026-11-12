@@ -902,12 +902,56 @@ def make_buffer_sizes(
     return result
 
 
+@dataclass(slots=True)
+class SyncCheckTraceRequest:
+    """Testing only: Procedure.sync_check(_sync_check_trace=...) traces the sync env
+    of the probed array elements to a JSONL file (schema: camspork_ref.py).
+
+    probes: (variable name, index) pairs. A variable name is str(Sym), and must
+    name exactly one variable of the proc, unless var_cursors maps it to the
+    AllocCursor / ArgCursor of the intended variable (e.g. one of several
+    unrolled copies of an alloc; the trace still only names it by str(Sym)).
+
+    Output: sync_check sets stmt_srcinfo (camspork stmt_id -> Exo source location).
+
+    Below sync_check, this is distilled into (filename, [(Sym, index)]).
+    """
+
+    filename: str
+    probes: List[Tuple[str, Tuple[int, ...]]]
+    var_cursors: Dict[str, "AllocCursor | ArgCursor"] = field(default_factory=dict)
+    stmt_srcinfo: Optional[Callable[[int], str]] = None
+
+    def resolve_syms(self, mem_env) -> Dict[str, Sym]:
+        """Probed variable name -> Sym (mem_env: the proc's variables)."""
+        probed_names = {name for name, _ in self.probes}
+        syms = {}
+        for name, cursor in self.var_cursors.items():
+            sym = cursor._sym()
+            assert (
+                str(sym) == name
+            ), f"trace var_cursors: {name!r} maps to a cursor of variable {sym}"
+            assert (
+                sym in mem_env
+            ), f"trace var_cursors: {sym} is not a variable of the proc"
+            assert name in probed_names, f"trace var_cursors: {name} is not probed"
+            syms[name] = sym
+        for sym in mem_env:
+            name = str(sym)
+            if name in probed_names and name not in self.var_cursors:
+                assert (
+                    name not in syms
+                ), f"trace probe name {name} is ambiguous: several declarations in the proc text (e.g. duplicated by unrolling) are named {name}; give its cursor in var_cursors"
+                syms[name] = sym
+        return syms
+
+
 def top_level_check(
     backend,
     args_dict: Dict[str, int],
     *,
     no_smem_free_check=False,
-    camspork_trace=None,
+    trace_request: Optional[SyncCheckTraceRequest] = None,
 ):
     backend: BackendChecks
     p = backend.analyzed
@@ -982,22 +1026,13 @@ def top_level_check(
         for bit_index, qual_tl in enumerate(Qual_tl.get_all()):
             env.set_qual_tl_name(bit_index, str(qual_tl))
         env.set_debug_validation_enable(debug_always)
-        if camspork_trace is not None and single_sync_var is None:
-            # Testing (camspork_ref.CamsporkTraceRequest): probes are StrElemNames,
-            # naming variables by str(Sym); each probed name must be unambiguous.
-            probed_names = {str(elem.var) for elem in camspork_trace.probes}
-            syms = {}
-            for sym in backend.mem_env:
-                if str(sym) in probed_names:
-                    assert (
-                        str(sym) not in syms
-                    ), f"trace probe name {sym} is ambiguous: several declarations in the proc text (e.g. duplicated by unrolling) are named {sym}"
-                    syms[str(sym)] = sym
+        if trace_request is not None and single_sync_var is None:
+            syms = trace_request.resolve_syms(backend.mem_env)
             env.set_trace(
-                camspork_trace.filename,
-                [(syms[str(elem.var)], elem.idx) for elem in camspork_trace.probes],
+                trace_request.filename,
+                [(syms[name], tuple(idx)) for name, idx in trace_request.probes],
             )
-            camspork_trace.stmt_srcinfo = lambda raw: str(
+            trace_request.stmt_srcinfo = lambda raw: str(
                 camspork_program.get_stmt_srcinfo(camspork.StmtRef(raw))
             )
         return env

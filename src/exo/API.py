@@ -468,13 +468,13 @@ class Procedure(ProcedureBase, ProcCallGen):
     # ------------------------------- #
     #     sync check
     # ------------------------------- #
-    def sync_check(self, *, _camspork_trace=None, **kwargs):
+    def sync_check(self, *, _sync_check_trace=None, **kwargs):
         """Perform sync check for a given concrete problem size.
 
         All size/index argument values must be given as int keyword arguments.
         This proc will be checked for the problem size given.
 
-        _camspork_trace: testing only; camspork_ref.CamsporkTraceRequest.
+        _sync_check_trace: testing only; sync_check.SyncCheckTraceRequest.
         """
 
         # Enforce for Exo pytest only that sync_check cannot be used without
@@ -497,7 +497,7 @@ class Procedure(ProcedureBase, ProcCallGen):
                 backend,
                 kwargs,
                 no_smem_free_check=self._hack_no_smem_free_check,
-                camspork_trace=_camspork_trace,
+                trace_request=_sync_check_trace,
             )
         except Exception as e:
             debug_log.enable_notify_user()

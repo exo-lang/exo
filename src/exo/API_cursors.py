@@ -210,6 +210,14 @@ class ArgCursor(Cursor):
 
         return self._impl._node.name.name()
 
+    def _sym(self) -> Sym:
+        """Internal (e.g. camspork trace tests): the argument's Sym, which
+        distinguishes variables whose name() is the same."""
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.fnarg)
+
+        return self._impl._node.name
+
     def mem(self) -> Type[MemWin]:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.fnarg)
@@ -660,6 +668,14 @@ class AllocCursor(StmtCursor):
         assert isinstance(self._impl._node, LoopIR.Alloc)
 
         return self._impl._node.name.name()
+
+    def _sym(self) -> Sym:
+        """Internal (e.g. camspork trace tests): the allocated variable's Sym, which
+        distinguishes variables whose name() is the same (e.g. after unrolling)."""
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+
+        return self._impl._node.name
 
     def mem(self) -> Type[MemWin]:
         assert isinstance(self._impl, C.Node)
