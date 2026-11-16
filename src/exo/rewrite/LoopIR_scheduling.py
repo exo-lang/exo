@@ -2270,7 +2270,7 @@ class _FreeVars(LoopIR_Do):
         super().do_s(s)
 
     def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
+        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)):
             if e.name not in self._bound:
                 self._fvs.add(e.name)
 
