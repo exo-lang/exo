@@ -2328,6 +2328,18 @@ def test_fission2():
         autofission(bar, bar.find("x = _").after(), n_lifts=2)
 
 
+def test_fission3():
+    @proc
+    def bar():
+        for i in seq(0, 1):
+            x: f32[1]
+            if stride(x, 0) == 1:
+                pass
+
+    with pytest.raises(SchedulingError, match="Will not fission here"):
+        fission(bar, bar.find("x : _").after())
+
+
 def test_lift(golden):
     @proc
     def bar(A: i8[16, 10]):
